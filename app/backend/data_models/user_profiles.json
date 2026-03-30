@@ -1,0 +1,39 @@
+{
+    "title": "user_profiles",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID from auth system"
+        },
+        "display_name": {
+            "type": "string",
+            "description": "User display name"
+        },
+        "avatar_url": {
+            "type": "string",
+            "description": "User avatar URL"
+        },
+        "credits": {
+            "type": "integer",
+            "description": "User credits balance, default 25"
+        },
+        "plan": {
+            "type": "string",
+            "description": "User subscription plan: free, pro, max"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Profile creation timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id"
+    ]
+}

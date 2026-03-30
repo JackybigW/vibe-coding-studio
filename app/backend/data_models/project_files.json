@@ -1,0 +1,55 @@
+{
+    "title": "project_files",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "project_id": {
+            "type": "integer",
+            "description": "Associated project ID"
+        },
+        "file_path": {
+            "type": "string",
+            "description": "File path relative to project root"
+        },
+        "file_name": {
+            "type": "string",
+            "description": "File name"
+        },
+        "content": {
+            "type": "string",
+            "description": "File content"
+        },
+        "language": {
+            "type": "string",
+            "description": "Programming language: tsx, ts, css, html, json"
+        },
+        "is_directory": {
+            "type": "boolean",
+            "description": "Whether this is a directory entry"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+        },
+        "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last update timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "project_id",
+        "file_path",
+        "file_name"
+    ]
+}

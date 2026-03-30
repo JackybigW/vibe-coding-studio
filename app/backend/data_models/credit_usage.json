@@ -1,0 +1,45 @@
+{
+    "title": "credit_usage",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "amount": {
+            "type": "integer",
+            "description": "Credits consumed (negative) or added (positive)"
+        },
+        "action": {
+            "type": "string",
+            "description": "Action type: chat, deploy, purchase, bonus"
+        },
+        "model": {
+            "type": "string",
+            "description": "LLM model used if applicable"
+        },
+        "project_id": {
+            "type": "integer",
+            "description": "Associated project ID if applicable"
+        },
+        "description": {
+            "type": "string",
+            "description": "Human-readable description"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "amount",
+        "action"
+    ]
+}

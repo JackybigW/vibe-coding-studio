@@ -1,0 +1,50 @@
+{
+    "title": "messages",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "User ID"
+        },
+        "project_id": {
+            "type": "integer",
+            "description": "Associated project ID"
+        },
+        "role": {
+            "type": "string",
+            "description": "Message role: user, assistant, system"
+        },
+        "content": {
+            "type": "string",
+            "description": "Message content text"
+        },
+        "model": {
+            "type": "string",
+            "description": "LLM model used for this message"
+        },
+        "agent": {
+            "type": "string",
+            "description": "Agent name: engineer, pm, designer, analyst"
+        },
+        "tokens_used": {
+            "type": "integer",
+            "description": "Tokens consumed by this message"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "project_id",
+        "role",
+        "content"
+    ]
+}

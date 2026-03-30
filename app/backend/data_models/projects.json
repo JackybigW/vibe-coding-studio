@@ -1,0 +1,57 @@
+{
+    "title": "projects",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "integer",
+            "description": "Primary key, auto-increment"
+        },
+        "user_id": {
+            "type": "string",
+            "description": "Owner user ID"
+        },
+        "name": {
+            "type": "string",
+            "description": "Project name"
+        },
+        "description": {
+            "type": "string",
+            "description": "Project description"
+        },
+        "status": {
+            "type": "string",
+            "description": "Project status: active, archived, deleted"
+        },
+        "visibility": {
+            "type": "string",
+            "description": "Visibility: public, private, secret"
+        },
+        "framework": {
+            "type": "string",
+            "description": "Framework used: react, vue, html"
+        },
+        "thumbnail_url": {
+            "type": "string",
+            "description": "Project thumbnail image URL"
+        },
+        "deploy_url": {
+            "type": "string",
+            "description": "Deployed URL if published"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+        },
+        "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last update timestamp"
+        }
+    },
+    "required": [
+        "id",
+        "user_id",
+        "name"
+    ]
+}
