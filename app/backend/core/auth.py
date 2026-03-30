@@ -192,7 +192,7 @@ async def validate_id_token(id_token: str) -> Optional[Dict[str, Any]]:
                 id_token,
                 pem_key,
                 algorithms=["RS256"],
-                issuer=settings.oidc_issuer_url,
+                issuer=getattr(settings, 'oidc_jwt_issuer', None) or settings.oidc_issuer_url,
                 audience=settings.oidc_client_id,
             )
             # Log user hash instead of actual user ID to avoid exposing sensitive information
@@ -263,5 +263,6 @@ def build_logout_url(id_token: Optional[str] = None) -> str:
     if id_token:
         params["id_token_hint"] = id_token
 
-    logout_url = f"{settings.oidc_issuer_url}/logout?" + urllib.parse.urlencode(params)
+    base_logout = getattr(settings, 'oidc_logout_url', None) or f"{settings.oidc_issuer_url}/logout"
+    logout_url = base_logout + "?" + urllib.parse.urlencode(params)
     return logout_url

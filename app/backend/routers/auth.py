@@ -149,7 +149,7 @@ async def callback(
         if code_verifier:
             token_data["code_verifier"] = code_verifier
 
-        token_url = f"{settings.oidc_issuer_url}/token"
+        token_url = getattr(settings, 'oidc_token_url', None) or f"{settings.oidc_issuer_url}/token"
         try:
             async with httpx.AsyncClient() as client:
                 token_response = await client.post(
