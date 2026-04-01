@@ -49,3 +49,4 @@ app/frontend/.vite/
 
 # Alembic compiled
 app/backend/alembic/versions/__pycache__/
+.worktrees/
