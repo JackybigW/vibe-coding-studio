@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { client } from "@/lib/api";
+import { getAPIBaseURL } from "@/lib/config";
 import { useAuth } from "@/contexts/AuthContext";
-import { useWorkspace, parseCodeBlocks } from "@/contexts/WorkspaceContext";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { ThinkingDisclosure } from "@/components/chat/ThinkingDisclosure";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -32,6 +34,7 @@ interface Message {
   id?: number;
   role: "user" | "assistant" | "system";
   content: string;
+  thinking?: string;
   agent?: string;
   model?: string;
   created_at?: string;
@@ -40,6 +43,7 @@ interface Message {
 }
 
 const MODELS = [
+  { id: "MiniMax-M2.7-highspeed", label: "MiniMax M2.7", icon: "⚡" },
   { id: "deepseek-v3.2", label: "DeepSeek V3", icon: "🔮" },
   { id: "gpt-5-chat", label: "GPT-5", icon: "🧠" },
   { id: "claude-4-5-sonnet", label: "Claude 4.5", icon: "🎭" },
@@ -66,14 +70,15 @@ interface ChatPanelProps {
 
 export default function ChatPanel({ mode }: ChatPanelProps) {
   const { user, isAuthenticated } = useAuth();
-  const { projectId, writeMultipleFiles, addTerminalLog } = useWorkspace();
+  const { projectId, addTerminalLog } = useWorkspace();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("deepseek-v3.2");
+  const [selectedModel, setSelectedModel] = useState("MiniMax-M2.7-highspeed");
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -131,20 +136,74 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     }
   };
 
-  /** After AI finishes, extract code blocks and write to files */
-  const processAIResponse = useCallback(
-    async (content: string) => {
-      const codeBlocks = parseCodeBlocks(content);
-      if (codeBlocks.length === 0) return [];
+  const appendMessage = useCallback((message: Message) => {
+    setMessages((prev) => [...prev, message]);
+  }, []);
 
-      addTerminalLog("");
-      addTerminalLog("$ AI detected file operations...");
+  const handleAgentEvent = useCallback(
+    (payload: Record<string, unknown>) => {
+      const type = payload.type as string;
 
-      await writeMultipleFiles(codeBlocks);
+      if (type === "session") {
+        addTerminalLog(`$ agent session started @ ${payload.workspace_root ?? ""}`);
+        appendMessage({
+          role: "assistant",
+          agent: String(payload.agent || "swe"),
+          content: `Session started.\n\nWorkspace: \`${payload.workspace_root}\``,
+          created_at: new Date().toISOString(),
+        });
+        return;
+      }
 
-      return codeBlocks.map((b) => b.path);
+      if (type === "assistant") {
+        appendMessage({
+          role: "assistant",
+          agent: String(payload.agent || "swe"),
+          content: String(payload.content || ""),
+          thinking: payload.thinking ? String(payload.thinking) : undefined,
+          model: selectedModel,
+          created_at: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (type === "tool_call") {
+        const formattedArgs = (() => {
+          try {
+            return JSON.stringify(JSON.parse(String(payload.arguments || "{}")), null, 2);
+          } catch {
+            return String(payload.arguments || "{}");
+          }
+        })();
+        addTerminalLog(`$ tool call: ${String(payload.tool || "")}`);
+        appendMessage({
+          role: "system",
+          content: `Using \`${payload.tool}\`\n\n\`\`\`json\n${formattedArgs}\n\`\`\``,
+          created_at: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (type === "tool_result") {
+        addTerminalLog(`$ tool result: ${String(payload.tool || "")}`);
+        appendMessage({
+          role: "system",
+          content: `Result from \`${payload.tool}\`\n\n\`\`\`\n${String(payload.content || "")}\n\`\`\``,
+          created_at: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (type === "error") {
+        appendMessage({
+          role: "assistant",
+          agent: "swe",
+          content: `Error: ${String(payload.error || "Unknown error")}`,
+          created_at: new Date().toISOString(),
+        });
+      }
     },
-    [writeMultipleFiles, addTerminalLog]
+    [addTerminalLog, appendMessage, selectedModel]
   );
 
   const handleSend = async () => {
@@ -163,132 +222,104 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
 
     await saveMessage(userMsg);
 
-    const agent = mode === "team" ? "engineer" : "engineer";
-
-    const assistantMsg: Message = {
-      role: "assistant",
-      content: "",
-      agent,
-      model: selectedModel,
-      isStreaming: true,
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, assistantMsg]);
-
-    // System prompt instructs AI to output code in file-tagged code blocks
-    const systemPrompt =
-      mode === "team"
-        ? `You are an AI development team. You are responding as the ${agent} agent.
-Help the user build their project. When writing code, ALWAYS use this format so files are written to the project:
-
-\`\`\`tsx:src/App.tsx
-// your code here
-\`\`\`
-
-\`\`\`css:src/index.css
-/* your styles here */
-\`\`\`
-
-The format is \`\`\`language:filepath. This will automatically write the code to the project files.
-Be concise. Write complete, working code. Use React + Tailwind CSS.`
-        : `You are Alex, an expert software engineer. Help the user build their project.
-
-IMPORTANT: When writing code, ALWAYS use this exact format so files are automatically written to the project:
-
-\`\`\`tsx:src/App.tsx
-// your code here
-\`\`\`
-
-\`\`\`css:src/index.css
-/* your styles here */
-\`\`\`
-
-The format is \`\`\`language:filepath — this writes the code directly into the project's file tree.
-Always write complete, working code. Use React + Tailwind CSS. Be concise and helpful.`;
-
-    const chatMessages = [
-      { role: "system" as const, content: systemPrompt },
-      ...messages.slice(-10).map((m) => ({
-        role: m.role as "system" | "user" | "assistant",
-        content: m.content,
-      })),
-      { role: "user" as const, content: input.trim() },
-    ];
-
-    let fullContent = "";
-
     try {
-      await client.ai.gentxt({
-        messages: chatMessages,
-        model: selectedModel,
-        stream: true,
-        onChunk: (chunk: { content?: string }) => {
-          if (chunk.content) {
-            fullContent += chunk.content;
-            setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last && last.role === "assistant") {
-                updated[updated.length - 1] = {
-                  ...last,
-                  content: fullContent,
-                };
-              }
-              return updated;
-            });
-          }
-        },
-        onComplete: async () => {
-          // Parse code blocks and write to files
-          const writtenFiles = await processAIResponse(fullContent);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-          setMessages((prev) => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
-            if (last && last.role === "assistant") {
-              updated[updated.length - 1] = {
-                ...last,
-                isStreaming: false,
-                filesWritten: writtenFiles,
-              };
-            }
-            return updated;
-          });
-          setIsLoading(false);
-          setIsStreaming(false);
-
-          saveMessage({
-            role: "assistant",
-            content: fullContent,
-            agent,
-            model: selectedModel,
-          });
+      const response = await fetch(`${getAPIBaseURL()}/api/v1/agent/run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-        onError: (error: { message?: string }) => {
-          console.error("AI error:", error);
-          setMessages((prev) => {
-            const updated = [...prev];
-            const last = updated[updated.length - 1];
-            if (last && last.role === "assistant") {
-              updated[updated.length - 1] = {
-                ...last,
-                content:
-                  fullContent ||
-                  "Sorry, I encountered an error. Please try again.",
-                isStreaming: false,
-              };
-            }
-            return updated;
-          });
-          setIsLoading(false);
-          setIsStreaming(false);
-        },
+        body: JSON.stringify({
+          prompt: input.trim(),
+          agent: "swe",
+          model: selectedModel,
+          project_id: projectId,
+        }),
+        signal: controller.signal,
       });
-    } catch (err) {
-      console.error("Chat error:", err);
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Agent request failed with status ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      let transcript = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
+
+        for (const chunk of chunks) {
+          const eventLine = chunk
+            .split("\n")
+            .find((line) => line.startsWith("event: "));
+          const dataLine = chunk
+            .split("\n")
+            .find((line) => line.startsWith("data: "));
+
+          if (!dataLine) continue;
+
+          const payload = JSON.parse(dataLine.replace(/^data:\s*/, ""));
+          handleAgentEvent(payload);
+
+          if (payload.type === "assistant" && payload.content) {
+            transcript += `${String(payload.content)}\n\n`;
+          }
+          if (payload.type === "done") {
+            if (transcript.trim()) {
+              saveMessage({
+                role: "assistant",
+                content: transcript.trim(),
+                agent: "swe",
+                model: selectedModel,
+              });
+            }
+            if (eventLine?.includes("done")) {
+              setIsLoading(false);
+              setIsStreaming(false);
+            }
+          }
+          if (payload.type === "error") {
+            setIsLoading(false);
+            setIsStreaming(false);
+          }
+        }
+      }
+
       setIsLoading(false);
       setIsStreaming(false);
+    } catch (err) {
+      console.error("Chat error:", err);
+      appendMessage({
+        role: "assistant",
+        agent: "swe",
+        content:
+          err instanceof Error
+            ? err.message
+            : "Sorry, I encountered an error. Please try again.",
+        created_at: new Date().toISOString(),
+      });
+      setIsLoading(false);
+      setIsStreaming(false);
+    } finally {
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleStop = () => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setIsLoading(false);
+    setIsStreaming(false);
+    addTerminalLog("$ agent aborted by user");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -405,13 +436,18 @@ Always write complete, working code. Use React + Tailwind CSS. Be concise and he
                 </div>
               )}
               <div className="text-sm text-[#E4E4E7] prose prose-invert prose-sm max-w-none [&_pre]:bg-[#0A0A0C] [&_pre]:border [&_pre]:border-[#27272A] [&_pre]:rounded-lg [&_code]:text-[#A855F7] [&_pre_code]:text-[#E4E4E7]">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {msg.content}
-                </ReactMarkdown>
+                {msg.content ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {msg.content}
+                  </ReactMarkdown>
+                ) : null}
                 {msg.isStreaming && (
                   <span className="inline-block w-2 h-4 bg-[#A855F7] animate-pulse ml-0.5" />
                 )}
               </div>
+              {msg.role === "assistant" && msg.thinking ? (
+                <ThinkingDisclosure thinking={msg.thinking} />
+              ) : null}
 
               {/* Files written indicator */}
               {msg.filesWritten && msg.filesWritten.length > 0 && (
@@ -464,6 +500,7 @@ Always write complete, working code. Use React + Tailwind CSS. Be concise and he
               size="sm"
               variant="ghost"
               className="text-red-400 hover:text-red-300 hover:bg-red-400/10 p-1 mb-0.5"
+              onClick={handleStop}
             >
               <StopCircle className="w-4 h-4" />
             </Button>

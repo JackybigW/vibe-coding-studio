@@ -46,7 +46,11 @@ app/frontend/.vite/
 .vscode/
 *.swp
 *.swo
+.claude/
 
 # Alembic compiled
 app/backend/alembic/versions/__pycache__/
 .worktrees/
+
+# Local planning / instruction artifacts
+docs/superpowers/plans/

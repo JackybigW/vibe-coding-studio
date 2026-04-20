@@ -22,11 +22,15 @@ process.env.VITE_APP_LOGO_URL ??= process.env.OVERVIEW_LOGO_URL ?? 'https://publ
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: [
-    viteSourceLocator({
-      prefix: 'mgx', // 前缀用于标识源代码位置，不能修改
-    }),
-    react(),
-    atoms(),
+    ...(mode === 'test'
+      ? [react()]
+      : [
+          viteSourceLocator({
+            prefix: 'mgx', // 前缀用于标识源代码位置，不能修改
+          }),
+          react(),
+          atoms(),
+        ]),
   ],
   resolve: {
     alias: {
@@ -94,5 +98,9 @@ export default defineConfig(({ mode }) => ({
       },
     },
     chunkSizeWarningLimit: 1000,
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: [],
   },
 }));
