@@ -55,3 +55,44 @@ def test_materialize_files_writes_nested_paths(tmp_path):
 
     assert (paths.host_root / "src" / "App.tsx").read_text(encoding="utf-8") == "export const App = () => null;"
     assert (paths.host_root / "backend" / "main.py").read_text(encoding="utf-8") == "print('ok')"
+
+
+def test_resolve_paths_rejects_unsafe_user_id(tmp_path):
+    service = ProjectWorkspaceService(base_root=tmp_path)
+
+    try:
+        service.resolve_paths(user_id="../escape", project_id=42)
+    except ValueError as exc:
+        assert "escape" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for unsafe user_id")
+
+
+def test_materialize_files_rejects_relative_traversal(tmp_path):
+    service = ProjectWorkspaceService(base_root=tmp_path)
+    paths = service.resolve_paths(user_id="user-123", project_id=42)
+
+    try:
+        service.materialize_files(
+            paths.host_root,
+            [{"file_path": "../escape.txt", "content": "nope"}],
+        )
+    except ValueError as exc:
+        assert "escape" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for relative traversal")
+
+
+def test_materialize_files_rejects_absolute_paths(tmp_path):
+    service = ProjectWorkspaceService(base_root=tmp_path)
+    paths = service.resolve_paths(user_id="user-123", project_id=42)
+
+    try:
+        service.materialize_files(
+            paths.host_root,
+            [{"file_path": "/absolute/escape.txt", "content": "nope"}],
+        )
+    except ValueError as exc:
+        assert "escape" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for absolute file path")

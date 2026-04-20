@@ -16,8 +16,20 @@ class ProjectWorkspaceService:
     def __init__(self, base_root: Path):
         self.base_root = Path(base_root)
 
+    def _ensure_within_root(self, root: Path, candidate: Path, error_label: str) -> Path:
+        root = Path(root).resolve(strict=False)
+        resolved_candidate = Path(candidate).resolve(strict=False)
+
+        try:
+            resolved_candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"{error_label} escapes workspace root") from exc
+
+        return resolved_candidate
+
     def resolve_paths(self, user_id: str, project_id: int) -> WorkspacePaths:
         host_root = self.base_root / user_id / str(project_id)
+        host_root = self._ensure_within_root(self.base_root, host_root, "host_root")
         host_root.mkdir(parents=True, exist_ok=True)
         return WorkspacePaths(host_root=host_root, container_root=Path("/workspace"))
 
@@ -28,6 +40,7 @@ class ProjectWorkspaceService:
         for file_record in project_files:
             relative_path = Path(file_record["file_path"])
             target_path = host_root / relative_path
+            target_path = self._ensure_within_root(host_root, target_path, "file_path")
             if file_record.get("is_directory"):
                 target_path.mkdir(parents=True, exist_ok=True)
                 continue
