@@ -81,6 +81,18 @@ def test_ensure_workspace_runtime_returns_preview_url(monkeypatch):
         _fake_ensure,
     )
 
+    # Mock ProjectsService.get_by_id to simulate ownership check passing
+    from services import projects as projects_module
+
+    class _FakeProject:
+        id = 42
+        user_id = "user-1"
+
+    async def _fake_get_by_id(self, obj_id, user_id=None):
+        return _FakeProject()
+
+    monkeypatch.setattr(projects_module.ProjectsService, "get_by_id", _fake_get_by_id)
+
     client = _make_client()
     response = client.post("/api/v1/workspace-runtime/projects/42/ensure")
     assert response.status_code == 200

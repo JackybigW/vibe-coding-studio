@@ -11,6 +11,7 @@ from dependencies.auth import get_current_user
 from schemas.auth import UserResponse
 from schemas.workspace_runtime import WorkspaceRuntimeStatusResponse
 from services.project_workspace import ProjectWorkspaceService
+from services.projects import ProjectsService
 from services.sandbox_runtime import SandboxRuntimeService
 from services.workspace_runtime_sessions import WorkspaceRuntimeSessionsService
 
@@ -19,6 +20,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/workspace-runtime", tags=["workspace-runtime"])
 
 _WORKSPACES_ROOT = Path(os.environ.get("ATOMS_WORKSPACES_ROOT", "/tmp/atoms_workspaces"))
+
+HOP_BY_HOP = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "content-encoding",
+}
 
 
 async def ensure_runtime_for_project(
@@ -30,6 +43,11 @@ async def ensure_runtime_for_project(
     Resolve workspace paths, start/reuse the sandbox container, read published
     ports, then upsert a WorkspaceRuntimeSessions record and return it.
     """
+    sessions_service = WorkspaceRuntimeSessionsService(db)
+    existing = await sessions_service.get_by_project(user_id, project_id)
+    if existing and existing.status == "running":
+        return existing
+
     workspace_service = ProjectWorkspaceService(base_root=_WORKSPACES_ROOT)
     paths = workspace_service.resolve_paths(user_id=user_id, project_id=project_id)
 
@@ -42,7 +60,6 @@ async def ensure_runtime_for_project(
 
     ports = await sandbox_service.get_runtime_ports(container_name)
 
-    sessions_service = WorkspaceRuntimeSessionsService(db)
     session = await sessions_service.create(
         {
             "user_id": user_id,
@@ -63,11 +80,22 @@ async def ensure_workspace_runtime(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    session = await ensure_runtime_for_project(
-        db=db,
-        user_id=str(current_user.id),
-        project_id=project_id,
-    )
+    projects_service = ProjectsService(db)
+    project = await projects_service.get_by_id(project_id, user_id=str(current_user.id))
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        session = await ensure_runtime_for_project(
+            db=db,
+            user_id=str(current_user.id),
+            project_id=project_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
     return WorkspaceRuntimeStatusResponse(
         project_id=project_id,
         status=session.status,
@@ -95,16 +123,27 @@ async def proxy_preview(
         raise HTTPException(status_code=404, detail="Preview runtime not found")
 
     upstream = f"http://127.0.0.1:{session.frontend_port}/{path}"
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        upstream_response = await client.request(
-            request.method,
-            upstream,
-            params=request.query_params,
-            content=await request.body(),
-            headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
-        )
+    timeout = httpx.Timeout(30.0, connect=5.0)
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+            upstream_response = await client.request(
+                request.method,
+                upstream,
+                params=request.query_params,
+                content=await request.body(),
+                headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
+            )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Preview upstream timed out")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail="Preview upstream not reachable")
+
+    safe_headers = {
+        k: v for k, v in upstream_response.headers.items()
+        if k.lower() not in HOP_BY_HOP
+    }
     return Response(
         content=upstream_response.content,
         status_code=upstream_response.status_code,
-        headers=dict(upstream_response.headers),
+        headers=safe_headers,
     )
