@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -1000,6 +1001,37 @@ async def test_database_manager_create_tables_keeps_uninitialized_when_context_e
         await manager.create_tables()
 
     assert manager._initialized is False
+
+
+@pytest.mark.asyncio
+async def test_start_preview_services_uses_start_preview_launcher():
+    recorded = []
+
+    async def _fake_run(*command):
+        recorded.append(command)
+        return 0, "", ""
+
+    service = SandboxRuntimeService(project_root=Path("/tmp/project"), run_command=_fake_run)
+    await service.start_preview_services("atoms-user-1-42")
+
+    assert recorded == [
+        ("docker", "exec", "-i", "atoms-user-1-42", "/bin/bash", "-lc", "/usr/local/bin/start-preview")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_wait_for_service_uses_healthcheck_path():
+    recorded = []
+
+    async def _fake_run(*command):
+        recorded.append(command)
+        return 0, "", ""
+
+    service = SandboxRuntimeService(project_root=Path("/tmp/project"), run_command=_fake_run)
+    ready = await service.wait_for_service("atoms-user-1-42", 8000, path="/health", timeout_seconds=1)
+
+    assert ready is True
+    assert "http://localhost:8000/health" in recorded[0][-1]
 
 
 @pytest.mark.asyncio

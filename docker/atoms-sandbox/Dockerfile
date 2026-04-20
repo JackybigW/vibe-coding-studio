@@ -22,7 +22,8 @@ RUN apt-get update \
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 
 COPY start-dev /usr/local/bin/start-dev
-RUN chmod +x /usr/local/bin/start-dev
+COPY start-preview /usr/local/bin/start-preview
+RUN chmod +x /usr/local/bin/start-dev /usr/local/bin/start-preview
 
 WORKDIR /workspace
 

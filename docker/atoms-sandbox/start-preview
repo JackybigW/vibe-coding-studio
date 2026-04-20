@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WORKSPACE_ROOT="/workspace"
+CONTRACT_PATH="${WORKSPACE_ROOT}/.atoms/preview.json"
+FRONTEND_LOG="/tmp/atoms-preview-frontend.log"
+BACKEND_LOG="/tmp/atoms-preview-backend.log"
+
+if [[ ! -f "${CONTRACT_PATH}" ]]; then
+  exec /usr/local/bin/start-dev
+fi
+
+eval "$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+payload = json.loads(Path("/workspace/.atoms/preview.json").read_text(encoding="utf-8"))
+frontend = payload["frontend"]
+backend = payload.get("backend")
+print(f'FRONTEND_COMMAND={frontend["command"]!r}')
+print(f'FRONTEND_HEALTHCHECK_PATH={frontend.get("healthcheck_path", "/")!r}')
+if backend:
+    print(f'BACKEND_COMMAND={backend["command"]!r}')
+    print(f'BACKEND_HEALTHCHECK_PATH={backend.get("healthcheck_path", "/health")!r}')
+PY
+)"
+
+cd "${WORKSPACE_ROOT}"
+
+export ATOMS_PREVIEW_FRONTEND_BASE="${ATOMS_PREVIEW_FRONTEND_BASE:-/}"
+export ATOMS_PREVIEW_BACKEND_BASE="${ATOMS_PREVIEW_BACKEND_BASE:-/api}"
+
+nohup bash -lc "${FRONTEND_COMMAND}" >"${FRONTEND_LOG}" 2>&1 &
+if [[ -n "${BACKEND_COMMAND:-}" ]]; then
+  nohup bash -lc "${BACKEND_COMMAND}" >"${BACKEND_LOG}" 2>&1 &
+fi
+
+echo "start-preview: launched preview services"

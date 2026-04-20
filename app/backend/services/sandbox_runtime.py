@@ -110,14 +110,19 @@ class SandboxRuntimeService:
     async def start_dev_server(self, container_name: str) -> tuple[int, str, str]:
         return await self.exec(container_name, "/usr/local/bin/start-dev")
 
+    async def start_preview_services(self, container_name: str) -> tuple[int, str, str]:
+        return await self.exec(container_name, "/usr/local/bin/start-preview")
+
     async def wait_for_service(
         self,
         container_name: str,
         port: int,
+        path: str = "/",
         timeout_seconds: float = 60.0,
         poll_interval_seconds: float = 1.0,
     ) -> bool:
         deadline = time.monotonic() + timeout_seconds
+        normalized_path = path if path.startswith("/") else f"/{path}"
 
         while True:
             remaining_seconds = deadline - time.monotonic()
@@ -127,7 +132,7 @@ class SandboxRuntimeService:
             probe_timeout = min(2.0, remaining_seconds, self.command_timeout_seconds)
             probe_command = (
                 f"curl -sf -o /dev/null --max-time {probe_timeout:g} "
-                f"http://localhost:{port}/"
+                f"http://localhost:{port}{normalized_path}"
             )
 
             try:

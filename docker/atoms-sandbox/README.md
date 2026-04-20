@@ -28,3 +28,8 @@ After the SWE agent finishes editing the project, the backend calls
 `docker exec <container> /usr/local/bin/start-dev`, which installs deps if
 needed and launches `pnpm run dev` bound to `0.0.0.0:3000` with the correct
 `--base` for the preview reverse proxy.
+
+After the SWE agent finishes editing the project, the backend calls
+`docker exec <container> /usr/local/bin/start-preview`, which reads `.atoms/preview.json`,
+starts the frontend on `3000`, optionally starts the backend on `8000`, and keeps both
+reachable through same-origin preview proxy routes.
