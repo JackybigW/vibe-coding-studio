@@ -136,6 +136,88 @@ class _FakeWorkspaceService:
         return {}
 
 
+def test_agent_run_emits_workspace_sync(monkeypatch):
+    class FakeAgentWithSync:
+        name = "swe"
+
+        def __init__(self, *args, event_emitter=None, **kwargs):
+            self._emit = event_emitter
+
+        async def run(self, request: str):
+            await self._emit({"type": "assistant", "agent": "swe", "content": "Working"})
+            await self._emit({"type": "workspace_sync", "changed_files": ["src/App.tsx"]})
+            await self._emit(
+                {
+                    "type": "preview_ready",
+                    "preview_url": "/api/v1/workspace-runtime/projects/42/preview/",
+                }
+            )
+            return "finished"
+
+        @classmethod
+        def build_for_workspace(cls, llm, event_emitter, file_operator, bash_session):
+            return cls(event_emitter=event_emitter)
+
+    monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", FakeAgentWithSync)
+    monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
+    monkeypatch.setattr(
+        "routers.agent_runtime._get_workspace_service",
+        lambda: _FakeWorkspaceService(),
+    )
+    monkeypatch.setattr(
+        "routers.agent_runtime._get_sandbox_service",
+        lambda: _FakeSandboxService(),
+    )
+
+    fake_user = UserResponse(id="user-1", email="test@example.com", name="Test", role="user")
+
+    app = FastAPI()
+    app.include_router(router)
+
+    from dependencies.auth import get_current_user
+    from core.database import get_db
+
+    async def fake_get_current_user():
+        return fake_user
+
+    async def fake_get_db():
+        yield FakeDB()
+
+    app.dependency_overrides[get_current_user] = fake_get_current_user
+    app.dependency_overrides[get_db] = fake_get_db
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/agent/run",
+            json={"prompt": "build a todo app", "project_id": 42},
+        )
+
+    assert response.status_code == 200
+    body = response.text
+
+    # Verify workspace_sync event is present with changed_files
+    assert "event: workspace_sync" in body
+    ws_line = next(
+        line
+        for line in body.splitlines()
+        if line.startswith("data: ") and '"type": "workspace_sync"' in line
+    )
+    ws_payload = json.loads(ws_line.removeprefix("data: "))
+    assert "changed_files" in ws_payload
+    assert ws_payload["changed_files"] == ["src/App.tsx"]
+
+    # Verify preview_ready event is present with preview_url
+    assert "event: preview_ready" in body
+    pr_line = next(
+        line
+        for line in body.splitlines()
+        if line.startswith("data: ") and '"type": "preview_ready"' in line
+    )
+    pr_payload = json.loads(pr_line.removeprefix("data: "))
+    assert "preview_url" in pr_payload
+    assert pr_payload["preview_url"] == "/api/v1/workspace-runtime/projects/42/preview/"
+
+
 def test_split_thinking_content_extracts_visible_content():
     thinking, content = split_thinking_content("<think>\ninspect files\n</think>\n\nFinal answer")
 
