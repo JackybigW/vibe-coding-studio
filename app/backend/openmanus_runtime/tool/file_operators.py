@@ -1,6 +1,7 @@
 """File operation interfaces and implementations for local and sandbox environments."""
 
 import asyncio
+import shlex
 from pathlib import Path
 from typing import Optional, Protocol, Tuple, Union, runtime_checkable
 
@@ -129,7 +130,17 @@ class ProjectFileOperator(LocalFileOperator):
         return await super().exists(self._to_host_path(path))
 
     async def run_command(self, cmd: str, timeout: Optional[float] = 120.0) -> Tuple[int, str, str]:
-        return await super().run_command(cmd, timeout)
+        return await super().run_command(self._map_workspace_paths_in_command(cmd), timeout)
+
+    def _map_workspace_paths_in_command(self, cmd: str) -> str:
+        parts = shlex.split(cmd)
+        mapped_parts: list[str] = []
+        for part in parts:
+            if part.startswith(str(self.container_root)):
+                mapped_parts.append(str(self._to_host_path(part)))
+            else:
+                mapped_parts.append(part)
+        return shlex.join(mapped_parts)
 
 
 class SandboxFileOperator(FileOperator):

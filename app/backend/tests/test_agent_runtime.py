@@ -7,7 +7,7 @@ from openmanus_runtime.llm import split_thinking_content
 from openmanus_runtime.schema import Message
 from openmanus_runtime.streaming import StreamingSWEAgent
 
-from routers.agent_runtime import router
+from routers.agent_runtime import _serialize_agent_history, router
 from schemas.auth import UserResponse
 
 
@@ -108,6 +108,32 @@ def test_agent_run_sse_stream(monkeypatch):
     done_line = next(line for line in body.splitlines() if line.startswith("data: ") and '"type": "done"' in line)
     done_payload = json.loads(done_line.removeprefix("data: "))
     assert done_payload["status"] == "success"
+    assert done_payload["trace_id"]
+
+    session_line = next(line for line in body.splitlines() if line.startswith("data: ") and '"type": "session"' in line)
+    session_payload = json.loads(session_line.removeprefix("data: "))
+    assert session_payload["trace_id"] == done_payload["trace_id"]
+
+
+def test_serialize_agent_history_includes_thinking_and_tool_messages():
+    history = _serialize_agent_history(
+        [
+            Message.user_message("build app"),
+            Message.assistant_message(content="working", thinking="plan"),
+            Message.tool_message(content="done", name="bash", tool_call_id="call-1"),
+        ]
+    )
+
+    assert history == [
+        {"role": "user", "content": "build app"},
+        {"role": "assistant", "content": "working", "thinking": "plan"},
+        {
+            "role": "tool",
+            "content": "done",
+            "name": "bash",
+            "tool_call_id": "call-1",
+        },
+    ]
 
 
 class _FakeSandboxService:

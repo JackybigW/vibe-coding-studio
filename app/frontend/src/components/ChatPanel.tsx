@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { client } from "@/lib/api";
 import { getAPIBaseURL } from "@/lib/config";
+import { buildAuthHeaders } from "@/lib/authToken";
+import { consumeSseBuffer } from "@/lib/sse";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { ThinkingDisclosure } from "@/components/chat/ThinkingDisclosure";
@@ -66,6 +68,13 @@ const AGENT_COLORS: Record<string, string> = {
 
 interface ChatPanelProps {
   mode: "engineer" | "team";
+}
+
+function createTraceId(): string {
+  if (typeof globalThis !== "undefined" && "crypto" in globalThis && "randomUUID" in globalThis.crypto) {
+    return globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export default function ChatPanel({ mode }: ChatPanelProps) {
@@ -140,12 +149,20 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     setMessages((prev) => [...prev, message]);
   }, []);
 
+  const logAgentTrace = useCallback((traceId: string, stage: string, details?: Record<string, unknown>) => {
+    const suffix = details ? ` ${JSON.stringify(details)}` : "";
+    console.info(`[agent:${traceId}] ${stage}${suffix}`);
+    addTerminalLog(`$ [agent:${traceId}] ${stage}`);
+  }, [addTerminalLog]);
+
   const handleAgentEvent = useCallback(
     (payload: Record<string, unknown>) => {
       const type = payload.type as string;
+      const traceId = String(payload.trace_id || "unknown");
+      logAgentTrace(traceId, `event:${type}`);
 
       if (type === "session") {
-        addTerminalLog(`$ agent session started @ ${payload.workspace_root ?? ""}`);
+        addTerminalLog(`$ [agent:${traceId}] session started @ ${payload.workspace_root ?? ""}`);
         appendMessage({
           role: "assistant",
           agent: String(payload.agent || "swe"),
@@ -175,7 +192,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
             return String(payload.arguments || "{}");
           }
         })();
-        addTerminalLog(`$ tool call: ${String(payload.tool || "")}`);
+        addTerminalLog(`$ [agent:${traceId}] tool call: ${String(payload.tool || "")}`);
         appendMessage({
           role: "system",
           content: `Using \`${payload.tool}\`\n\n\`\`\`json\n${formattedArgs}\n\`\`\``,
@@ -185,7 +202,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       }
 
       if (type === "tool_result") {
-        addTerminalLog(`$ tool result: ${String(payload.tool || "")}`);
+        addTerminalLog(`$ [agent:${traceId}] tool result: ${String(payload.tool || "")}`);
         appendMessage({
           role: "system",
           content: `Result from \`${payload.tool}\`\n\n\`\`\`\n${String(payload.content || "")}\n\`\`\``,
@@ -206,7 +223,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
 
       if (type === "workspace_sync") {
         const count = Array.isArray(payload.changed_files) ? payload.changed_files.length : 0;
-        addTerminalLog(`$ synced ${count} file(s) from sandbox`);
+        addTerminalLog(`$ [agent:${traceId}] synced ${count} file(s) from sandbox`);
         void reloadFiles();
         return;
       }
@@ -215,18 +232,18 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         const previewUrl = String(payload.preview_url || "");
         setPreviewUrl(previewUrl);
         reloadPreview();
-        addTerminalLog(`$ preview ready: ${previewUrl}`);
+        addTerminalLog(`$ [agent:${traceId}] preview ready: ${previewUrl}`);
         return;
       }
 
       if (type === "preview_failed") {
         setPreviewUrl("");
         reloadPreview();
-        addTerminalLog(`$ preview failed: ${String(payload.reason || "unknown")}`);
+        addTerminalLog(`$ [agent:${traceId}] preview failed: ${String(payload.reason || "unknown")}`);
         return;
       }
     },
-    [addTerminalLog, appendMessage, selectedModel, reloadFiles, setPreviewUrl, reloadPreview]
+    [addTerminalLog, appendMessage, logAgentTrace, selectedModel, reloadFiles, setPreviewUrl, reloadPreview]
   );
 
   const handleSend = async () => {
@@ -244,15 +261,23 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     setIsStreaming(true);
 
     await saveMessage(userMsg);
+    const traceId = createTraceId();
 
     try {
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      logAgentTrace(traceId, "send:start", {
+        projectId,
+        model: selectedModel,
+        promptChars: input.trim().length,
+      });
 
       const response = await fetch(`${getAPIBaseURL()}/api/v1/agent/run`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...buildAuthHeaders(),
+          "X-Trace-Id": traceId,
         },
         body: JSON.stringify({
           prompt: input.trim(),
@@ -263,6 +288,11 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         signal: controller.signal,
       });
 
+      logAgentTrace(traceId, "send:response", {
+        ok: response.ok,
+        status: response.status,
+      });
+
       if (!response.ok || !response.body) {
         throw new Error(`Agent request failed with status ${response.status}`);
       }
@@ -271,26 +301,22 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
       let transcript = "";
+      let chunkCount = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
+        chunkCount += 1;
+        if (chunkCount === 1) {
+          logAgentTrace(traceId, "stream:first-chunk");
+        }
         buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() || "";
+        const parsed = consumeSseBuffer(buffer);
+        buffer = parsed.rest;
 
-        for (const chunk of chunks) {
-          const eventLine = chunk
-            .split("\n")
-            .find((line) => line.startsWith("event: "));
-          const dataLine = chunk
-            .split("\n")
-            .find((line) => line.startsWith("data: "));
-
-          if (!dataLine) continue;
-
-          const payload = JSON.parse(dataLine.replace(/^data:\s*/, ""));
+        for (const parsedEvent of parsed.events) {
+          const payload = parsedEvent.payload;
           handleAgentEvent(payload);
 
           if (payload.type === "assistant" && payload.content) {
@@ -302,24 +328,30 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                 role: "assistant",
                 content: transcript.trim(),
                 agent: "swe",
-                model: selectedModel,
-              });
-            }
-            if (eventLine?.includes("done")) {
+              model: selectedModel,
+            });
+          }
+            if (parsedEvent.event === "done") {
+              logAgentTrace(traceId, "stream:done");
               setIsLoading(false);
               setIsStreaming(false);
             }
           }
           if (payload.type === "error") {
+            logAgentTrace(traceId, "stream:error", { error: payload.error });
             setIsLoading(false);
             setIsStreaming(false);
           }
         }
       }
 
+      logAgentTrace(traceId, "stream:complete", { chunks: chunkCount });
       setIsLoading(false);
       setIsStreaming(false);
     } catch (err) {
+      logAgentTrace(traceId, "send:exception", {
+        message: err instanceof Error ? err.message : "unknown",
+      });
       console.error("Chat error:", err);
       appendMessage({
         role: "assistant",

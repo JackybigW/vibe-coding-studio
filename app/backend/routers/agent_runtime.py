@@ -4,13 +4,16 @@ import logging
 import os
 from pathlib import Path
 from typing import AsyncGenerator
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from openmanus_runtime.schema import Message
 from openmanus_runtime.streaming import StreamingSWEAgent, build_agent_llm
 from openmanus_runtime.tool.bash import ContainerBashSession
 from openmanus_runtime.tool.file_operators import ProjectFileOperator
 from schemas.agent_runtime import AgentRunRequest
 from services.project_files import Project_filesService
+from services.messages import MessagesService
 from services.project_workspace import ProjectWorkspaceService
 from services.sandbox_runtime import SandboxRuntimeService
 from services.workspace_runtime_sessions import WorkspaceRuntimeSessionsService
@@ -36,25 +39,61 @@ def _get_sandbox_service() -> SandboxRuntimeService:
     return SandboxRuntimeService(project_root=_WORKSPACES_ROOT)
 
 
+def _make_trace_id() -> str:
+    return uuid4().hex[:12]
+
+
+def _serialize_agent_history(messages: list[Message]) -> list[dict[str, object]]:
+    serialized: list[dict[str, object]] = []
+    for message in messages:
+        item: dict[str, object] = {"role": message.role}
+        if message.content is not None:
+            item["content"] = message.content
+        if message.thinking is not None:
+            item["thinking"] = message.thinking
+        if message.name is not None:
+            item["name"] = message.name
+        if message.tool_call_id is not None:
+            item["tool_call_id"] = message.tool_call_id
+        if message.tool_calls is not None:
+            item["tool_calls"] = [tool_call.model_dump() for tool_call in message.tool_calls]
+        serialized.append(item)
+    return serialized
+
+
 @router.post("/run")
 async def run_agent(
     request: AgentRunRequest,
+    http_request: Request,
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     queue: asyncio.Queue[dict | None] = asyncio.Queue()
+    trace_id = http_request.headers.get("x-trace-id") or _make_trace_id()
+    logger.info(
+        "[agent:%s] request received user_id=%s project_id=%s model=%s prompt_chars=%s",
+        trace_id,
+        current_user.id,
+        request.project_id,
+        request.model,
+        len(request.prompt or ""),
+    )
 
     async def emit(event: dict) -> None:
-        await queue.put(event)
+        event_with_trace = {"trace_id": trace_id, **event}
+        logger.info("[agent:%s] emit event=%s", trace_id, event_with_trace.get("type"))
+        await queue.put(event_with_trace)
 
     async def run_task() -> None:
         try:
             user_id = str(current_user.id)
             project_id = request.project_id
+            logger.info("[agent:%s] run_task started", trace_id)
 
             # --- Resolve workspace paths and materialize project files ---
             workspace_service = _get_workspace_service()
             paths = workspace_service.resolve_paths(user_id=user_id, project_id=project_id)
+            logger.info("[agent:%s] workspace resolved host_root=%s", trace_id, paths.host_root)
 
             files_service = Project_filesService(db)
             files_result = await files_service.get_list(
@@ -72,6 +111,32 @@ async def run_agent(
                 for f in files_result["items"]
             ]
             workspace_service.materialize_files(paths.host_root, file_records)
+            logger.info("[agent:%s] materialized %s project files", trace_id, len(file_records))
+
+            messages_service = MessagesService(db)
+            message_history_result = await messages_service.get_list(
+                skip=0,
+                limit=200,
+                user_id=user_id,
+                query_dict={"project_id": project_id},
+                sort="created_at",
+            )
+            persisted_history = [
+                {
+                    "role": message.role,
+                    "content": message.content,
+                    "agent": message.agent,
+                    "model": message.model,
+                    "created_at": message.created_at.isoformat() if message.created_at else None,
+                }
+                for message in message_history_result["items"]
+            ]
+            logger.info(
+                "[agent:%s] persisted message history count=%s history=%s",
+                trace_id,
+                len(persisted_history),
+                json.dumps(persisted_history, ensure_ascii=False),
+            )
 
             # --- Ensure sandbox container is running ---
             sandbox_service = _get_sandbox_service()
@@ -81,7 +146,9 @@ async def run_agent(
                     project_id=project_id,
                     host_root=paths.host_root,
                 )
+                logger.info("[agent:%s] sandbox ready container=%s", trace_id, container_name)
             except Exception as exc:
+                logger.exception("[agent:%s] sandbox startup failed", trace_id)
                 await emit({"type": "error", "status": "failure", "error": f"Could not start sandbox: {exc}"})
                 await queue.put(None)
                 return
@@ -98,12 +165,14 @@ async def run_agent(
             )
 
             llm = build_agent_llm(request.model)
+            logger.info("[agent:%s] llm constructed model=%s", trace_id, request.model)
             agent = StreamingSWEAgent.build_for_workspace(
                 llm=llm,
                 event_emitter=emit,
                 file_operator=file_operator,
                 bash_session=bash_session,  # always a ContainerBashSession now
             )
+            logger.info("[agent:%s] agent built name=%s", trace_id, agent.name)
 
             await emit(
                 {
@@ -124,12 +193,21 @@ async def run_agent(
                 "one-off verification commands.\n\n"
                 f"User request:\n{request.prompt}"
             )
+            logger.info("[agent:%s] agent.run started", trace_id)
             result = await agent.run(task_prompt)
+            logger.info("[agent:%s] agent.run completed", trace_id)
+            agent_messages = getattr(agent, "messages", [])
+            logger.info(
+                "[agent:%s] agent memory history=%s",
+                trace_id,
+                json.dumps(_serialize_agent_history(agent_messages), ensure_ascii=False),
+            )
 
             # --- Snapshot and sync changed files back to DB ---
             try:
                 snapshot = workspace_service.snapshot_files(paths.host_root)
                 changed_paths: list[str] = []
+                logger.info("[agent:%s] snapshot captured files=%s", trace_id, len(snapshot))
 
                 for rel_path, file_info in snapshot.items():
                     file_name = Path(rel_path).name
@@ -169,13 +247,21 @@ async def run_agent(
                         "changed_files": changed_paths,
                     }
                 )
+                logger.info("[agent:%s] workspace sync updated_files=%s", trace_id, len(changed_paths))
             except Exception as sync_exc:
-                logger.warning("Workspace sync failed: %s", sync_exc)
+                logger.warning("[agent:%s] workspace sync failed: %s", trace_id, sync_exc)
 
             try:
+                logger.info("[agent:%s] starting preview server", trace_id)
                 returncode, _, stderr = await sandbox_service.start_dev_server(container_name)
                 if returncode != 0:
                     stderr_tail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
+                    logger.warning(
+                        "[agent:%s] preview start failed returncode=%s stderr=%s",
+                        trace_id,
+                        returncode,
+                        stderr_tail,
+                    )
                     await emit(
                         {
                             "type": "preview_failed",
@@ -189,8 +275,16 @@ async def run_agent(
                     frontend_port = ports.get("frontend_port")
                     preview_port = ports.get("preview_port")
                     backend_port = ports.get("backend_port")
+                    logger.info(
+                        "[agent:%s] runtime ports frontend=%s backend=%s preview=%s",
+                        trace_id,
+                        frontend_port,
+                        backend_port,
+                        preview_port,
+                    )
 
                     if not frontend_port:
+                        logger.warning("[agent:%s] preview failed no frontend port", trace_id)
                         await emit(
                             {
                                 "type": "preview_failed",
@@ -198,12 +292,14 @@ async def run_agent(
                             }
                         )
                     else:
+                        logger.info("[agent:%s] waiting for preview service", trace_id)
                         ready = await sandbox_service.wait_for_service(
                             container_name=container_name,
                             port=3000,
                             timeout_seconds=60.0,
                             poll_interval_seconds=1.0,
                         )
+                        logger.info("[agent:%s] preview wait completed ready=%s", trace_id, ready)
                         await WorkspaceRuntimeSessionsService(db).create(
                             {
                                 "user_id": user_id,
@@ -233,7 +329,7 @@ async def run_agent(
                                 }
                             )
             except Exception as preview_exc:
-                logger.warning("Preview startup failed: %s", preview_exc)
+                logger.exception("[agent:%s] preview startup failed", trace_id)
                 await emit(
                     {
                         "type": "preview_failed",
@@ -250,7 +346,9 @@ async def run_agent(
                     "result": result,
                 }
             )
+            logger.info("[agent:%s] run_task finished successfully", trace_id)
         except Exception as exc:
+            logger.exception("[agent:%s] run_task failed", trace_id)
             await emit(
                 {
                     "type": "error",
@@ -259,6 +357,7 @@ async def run_agent(
                 }
             )
         finally:
+            logger.info("[agent:%s] run_task finalizing", trace_id)
             await queue.put(None)
 
     async def event_generator() -> AsyncGenerator[dict, None]:
@@ -267,12 +366,15 @@ async def run_agent(
             while True:
                 event = await queue.get()
                 if event is None:
+                    logger.info("[agent:%s] event_generator received sentinel", trace_id)
                     break
+                logger.info("[agent:%s] yielding sse event=%s", trace_id, event["type"])
                 yield {
                     "event": event["type"],
                     "data": json.dumps(event, ensure_ascii=False),
                 }
         finally:
+            logger.info("[agent:%s] event_generator awaiting task completion", trace_id)
             await task
 
     return EventSourceResponse(event_generator(), media_type="text/event-stream")

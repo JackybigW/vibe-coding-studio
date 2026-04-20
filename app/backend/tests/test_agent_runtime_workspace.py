@@ -78,6 +78,21 @@ async def test_project_file_operator_is_directory(tmp_path):
     assert await operator.is_directory("/workspace/afile.txt") is False
 
 
+@pytest.mark.asyncio
+async def test_project_file_operator_run_command_maps_workspace_paths(tmp_path):
+    operator = ProjectFileOperator(
+        host_root=tmp_path / "user-1" / "1",
+        container_root=Path("/workspace"),
+    )
+    operator.host_root.mkdir(parents=True, exist_ok=True)
+
+    returncode, stdout, stderr = await operator.run_command("printf '%s' /workspace/src")
+
+    assert returncode == 0
+    assert stdout == str(operator.host_root / "src")
+    assert stderr == ""
+
+
 # ---------------------------------------------------------------------------
 # Schema / route validation tests
 # ---------------------------------------------------------------------------

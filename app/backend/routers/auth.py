@@ -45,28 +45,40 @@ def _local_patch(url: str) -> str:
 def get_dynamic_backend_url(request: Request) -> str:
     """Get backend URL dynamically from request headers.
 
-    Priority: mgx-external-domain > x-forwarded-host > host > settings.backend_url
+    Priority: mgx-external-domain > x-forwarded-host > settings.backend_url
     """
     mgx_external_domain = request.headers.get("mgx-external-domain")
     x_forwarded_host = request.headers.get("x-forwarded-host")
-    host = request.headers.get("host")
-    scheme = request.headers.get("x-forwarded-proto", "https")
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
 
-    effective_host = mgx_external_domain or x_forwarded_host or host
+    effective_host = mgx_external_domain or x_forwarded_host
     if not effective_host:
-        logger.warning("[get_dynamic_backend_url] No host found, fallback to %s", settings.backend_url)
-        return settings.backend_url
+        fallback_url = _local_patch(settings.backend_url)
+        logger.debug("[get_dynamic_backend_url] No proxy host found, fallback to %s", fallback_url)
+        return fallback_url
 
     dynamic_url = _local_patch(f"{scheme}://{effective_host}")
     logger.debug(
-        "[get_dynamic_backend_url] mgx-external-domain=%s, x-forwarded-host=%s, host=%s, scheme=%s, dynamic_url=%s",
+        "[get_dynamic_backend_url] mgx-external-domain=%s, x-forwarded-host=%s, scheme=%s, dynamic_url=%s",
         mgx_external_domain,
         x_forwarded_host,
-        host,
         scheme,
         dynamic_url,
     )
     return dynamic_url
+
+
+def get_frontend_app_url(request: Request) -> str:
+    """Get frontend app URL for browser redirects after auth completes."""
+    frontend_url = _local_patch(getattr(settings, "frontend_url", ""))
+    if frontend_url:
+        return frontend_url.rstrip("/")
+
+    origin = request.headers.get("origin")
+    if origin:
+        return _local_patch(origin).rstrip("/")
+
+    return get_dynamic_backend_url(request)
 
 
 def derive_name_from_email(email: str) -> str:
@@ -108,11 +120,12 @@ async def callback(
 ):
     """Handle OIDC callback."""
     backend_url = get_dynamic_backend_url(request)
+    frontend_url = get_frontend_app_url(request)
 
     def redirect_with_error(message: str) -> RedirectResponse:
         fragment = urlencode({"msg": message})
         return RedirectResponse(
-            url=f"{backend_url}/auth/error?{fragment}",
+            url=f"{frontend_url}/auth/error?{fragment}",
             status_code=status.HTTP_302_FOUND,
         )
 
@@ -204,7 +217,7 @@ async def callback(
             }
         )
 
-        redirect_url = f"{backend_url}/auth/callback?{fragment}"
+        redirect_url = f"{frontend_url}/auth/callback?{fragment}"
         logger.info("[callback] OIDC callback successful, redirecting to %s", redirect_url)
         redirect_response = RedirectResponse(
             url=redirect_url,

@@ -17,6 +17,7 @@ def test_snapshot_files_ignores_runtime_directories(tmp_path):
     host_root = tmp_path / "user-123" / "42"
     (host_root / "src").mkdir(parents=True)
     (host_root / ".venv").mkdir()
+    (host_root / ".pnpm-store" / "v3" / "files").mkdir(parents=True)
     (host_root / "node_modules" / "pkg").mkdir(parents=True)
     (host_root / "dist").mkdir()
     (host_root / "build").mkdir()
@@ -25,6 +26,7 @@ def test_snapshot_files_ignores_runtime_directories(tmp_path):
 
     (host_root / "src" / "App.tsx").write_text("export default function App() {}", encoding="utf-8")
     (host_root / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin/python", encoding="utf-8")
+    (host_root / ".pnpm-store" / "v3" / "files" / "hash").write_text("store", encoding="utf-8")
     (host_root / "node_modules" / "pkg" / "index.js").write_text("module.exports = {}", encoding="utf-8")
     (host_root / "dist" / "bundle.js").write_text("console.log('dist')", encoding="utf-8")
     (host_root / "build" / "bundle.js").write_text("console.log('build')", encoding="utf-8")

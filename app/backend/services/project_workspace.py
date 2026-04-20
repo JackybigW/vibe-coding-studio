@@ -3,7 +3,15 @@ from pathlib import Path
 from typing import Iterable
 
 
-IGNORED_PARTS = {".venv", "node_modules", "dist", "build", "__pycache__", ".git"}
+IGNORED_PARTS = {
+    ".venv",
+    ".pnpm-store",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".git",
+}
 
 
 @dataclass(frozen=True)
