@@ -8,7 +8,7 @@ class WorkspaceRuntimeStatusResponse(BaseModel):
     project_id: int
     status: str
     container_name: str
-    preview_session_key: str
+    preview_session_key: Optional[str] = None
     preview_expires_at: Optional[datetime] = None
     preview_frontend_url: str
     preview_backend_url: str

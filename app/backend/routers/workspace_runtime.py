@@ -99,7 +99,6 @@ async def ensure_workspace_runtime(
 
     if not session.preview_session_key:
         preview_fields = new_preview_session_fields()
-        sessions_service = WorkspaceRuntimeSessionsService(db)
         for key, value in preview_fields.items():
             setattr(session, key, value)
         await db.commit()
