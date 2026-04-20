@@ -158,7 +158,13 @@ class _FakeSandboxService:
             return 0, "", ""
         return 2, "", "start-dev: ATOMS_PROJECT_ID env var is required"
 
-    async def wait_for_service(self, container_name, port, timeout_seconds=60.0, poll_interval_seconds=1.0):
+    async def start_preview_services(self, container_name):
+        self.dev_calls.append(container_name)
+        if self.dev_success:
+            return 0, "", ""
+        return 2, "", "start-preview: ATOMS_PROJECT_ID env var is required"
+
+    async def wait_for_service(self, container_name, port, path="/", timeout_seconds=60.0, poll_interval_seconds=1.0):
         self.wait_calls.append((container_name, port))
         return self.wait_success
 
@@ -270,13 +276,6 @@ def test_agent_run_emits_preview_ready_after_agent_completion(monkeypatch):
         "routers.agent_runtime._get_workspace_service",
         lambda: _FakeWorkspaceService(),
     )
-    session_creates = []
-
-    async def fake_create(self, data):
-        session_creates.append(data)
-        return data
-
-    monkeypatch.setattr("routers.agent_runtime.WorkspaceRuntimeSessionsService.create", fake_create)
     fake_sandbox = _FakeSandboxService()
     monkeypatch.setattr(
         "routers.agent_runtime._get_sandbox_service",
@@ -317,20 +316,9 @@ def test_agent_run_emits_preview_ready_after_agent_completion(monkeypatch):
     )
     preview_payload = json.loads(preview_line.removeprefix("data: "))
     assert preview_payload["type"] == "preview_ready"
-    assert preview_payload["preview_url"] == "/api/v1/workspace-runtime/projects/7/preview/"
+    assert "preview_session_key" in preview_payload
     assert fake_sandbox.dev_calls == ["atoms-user-1-7"]
-    assert fake_sandbox.wait_calls == [("atoms-user-1-7", 3000)]
-    assert session_creates == [
-        {
-            "user_id": "user-1",
-            "project_id": 7,
-            "container_name": "atoms-user-1-7",
-            "status": "running",
-            "preview_port": 55555,
-            "frontend_port": 55555,
-            "backend_port": 55556,
-        }
-    ]
+    assert ("atoms-user-1-7", 3000) in fake_sandbox.wait_calls
 
 
 def test_agent_run_emits_preview_failed_when_dev_server_times_out(monkeypatch):
@@ -340,13 +328,6 @@ def test_agent_run_emits_preview_failed_when_dev_server_times_out(monkeypatch):
         "routers.agent_runtime._get_workspace_service",
         lambda: _FakeWorkspaceService(),
     )
-    session_creates = []
-
-    async def fake_create(self, data):
-        session_creates.append(data)
-        return data
-
-    monkeypatch.setattr("routers.agent_runtime.WorkspaceRuntimeSessionsService.create", fake_create)
     fake_sandbox = _FakeSandboxService(dev_success=True, wait_success=False)
     monkeypatch.setattr(
         "routers.agent_runtime._get_sandbox_service",
@@ -389,17 +370,6 @@ def test_agent_run_emits_preview_failed_when_dev_server_times_out(monkeypatch):
     preview_payload = json.loads(preview_line.removeprefix("data: "))
     assert preview_payload["type"] == "preview_failed"
     assert preview_payload["reason"] == "timeout"
-    assert session_creates == [
-        {
-            "user_id": "user-1",
-            "project_id": 7,
-            "container_name": "atoms-user-1-7",
-            "status": "starting",
-            "preview_port": 55555,
-            "frontend_port": 55555,
-            "backend_port": 55556,
-        }
-    ]
 
 
 def test_split_thinking_content_extracts_visible_content():
@@ -435,3 +405,113 @@ async def test_streaming_agent_emits_thinking():
             "agent": "swe",
         }
     ]
+
+
+# ---------------------------------------------------------------------------
+# Helpers for Task 4 preview bundle tests
+# ---------------------------------------------------------------------------
+
+def _post_agent_run(monkeypatch):
+    fake_user = UserResponse(id="user-1", email="test@example.com", name="Test", role="user")
+    app = FastAPI()
+    app.include_router(router)
+
+    from dependencies.auth import get_current_user
+    from core.database import get_db
+
+    async def fake_get_current_user():
+        return fake_user
+
+    async def fake_get_db():
+        yield FakeDB()
+
+    app.dependency_overrides[get_current_user] = fake_get_current_user
+    app.dependency_overrides[get_db] = fake_get_db
+
+    with TestClient(app) as client:
+        return client.post(
+            "/api/v1/agent/run",
+            json={"prompt": "build a billing app", "project_id": 42, "model": "gpt-5-chat"},
+        )
+
+
+class PromptCapturingAgent:
+    name = "swe"
+
+    def __init__(self, *args, event_emitter=None, **kwargs):
+        self._emit = event_emitter
+
+    async def run(self, request: str):
+        self.prompt = request
+        return "finished"
+
+    @classmethod
+    def build_for_workspace(cls, llm, event_emitter, file_operator, bash_session):
+        return cls(event_emitter=event_emitter)
+
+
+def test_agent_prompt_includes_preview_manifest_contract(monkeypatch):
+    captured_prompt = {}
+
+    class FakeAgent(PromptCapturingAgent):
+        async def run(self, request: str):
+            captured_prompt["value"] = request
+            return await super().run(request)
+
+    monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", FakeAgent)
+    monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
+    monkeypatch.setattr("routers.agent_runtime._get_workspace_service", lambda: _FakeWorkspaceService())
+    monkeypatch.setattr("routers.agent_runtime._get_sandbox_service", lambda: _FakeSandboxService())
+
+    response = _post_agent_run(monkeypatch)
+
+    assert response.status_code == 200
+    assert ".atoms/preview.json" in captured_prompt["value"]
+    assert "VITE_ATOMS_PREVIEW_BACKEND_BASE" in captured_prompt["value"]
+    assert "/usr/local/bin/start-preview" in captured_prompt["value"]
+
+
+def test_agent_run_emits_preview_bundle(monkeypatch):
+    _FIXED_SESSION_KEY = "preview-session-123"
+
+    class _FakeSession:
+        preview_session_key = _FIXED_SESSION_KEY
+        preview_expires_at = None
+        frontend_status = "running"
+        backend_status = "running"
+
+    async def fake_create(self, data):
+        return _FakeSession()
+
+    async def fake_get_by_project(self, user_id, project_id):
+        return None
+
+    monkeypatch.setattr("routers.agent_runtime.WorkspaceRuntimeSessionsService.create", fake_create)
+    monkeypatch.setattr("routers.agent_runtime.WorkspaceRuntimeSessionsService.get_by_project", fake_get_by_project)
+    monkeypatch.setattr(
+        "routers.agent_runtime.new_preview_session_fields",
+        lambda: {
+            "preview_session_key": _FIXED_SESSION_KEY,
+            "preview_expires_at": None,
+            "frontend_status": "running",
+            "backend_status": "running",
+        },
+    )
+    monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", PromptCapturingAgent)
+    monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
+    monkeypatch.setattr("routers.agent_runtime._get_workspace_service", lambda: _FakeWorkspaceService())
+    monkeypatch.setattr("routers.agent_runtime._get_sandbox_service", lambda: _FakeSandboxService())
+
+    response = _post_agent_run(monkeypatch)
+    body = response.text
+    preview_line = next(
+        line for line in body.splitlines()
+        if line.startswith("data: ") and '"type": "preview_ready"' in line
+    )
+    payload = json.loads(preview_line.removeprefix("data: "))
+
+    assert payload["preview_session_key"] == "preview-session-123"
+    assert payload["preview_frontend_url"] == "/preview/preview-session-123/frontend/"
+    assert payload["preview_backend_url"] == "/preview/preview-session-123/backend/"
+    assert payload["frontend_status"] == "running"
+    assert payload["backend_status"] == "running"

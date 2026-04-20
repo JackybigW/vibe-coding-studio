@@ -12,6 +12,8 @@ from openmanus_runtime.streaming import StreamingSWEAgent, build_agent_llm
 from openmanus_runtime.tool.bash import ContainerBashSession
 from openmanus_runtime.tool.file_operators import ProjectFileOperator
 from schemas.agent_runtime import AgentRunRequest
+from services.preview_contract import load_preview_contract
+from services.preview_sessions import build_preview_urls, new_preview_session_fields
 from services.project_files import Project_filesService
 from services.messages import MessagesService
 from services.project_workspace import ProjectWorkspaceService
@@ -188,8 +190,12 @@ async def run_agent(
                 "Use absolute paths starting with /workspace for file edits, "
                 "and change into this directory before running bash commands.\n"
                 "After file edits, the backend will automatically run "
-                "/usr/local/bin/start-dev to launch the Vite dev server on port 3000.\n"
-                "Do not start the dev server yourself; focus on writing code and "
+                "/usr/local/bin/start-preview to launch the preview services.\n"
+                "The preview configuration is declared in .atoms/preview.json "
+                "(frontend command, optional backend command, healthcheck paths).\n"
+                "If your app has a backend API, set the VITE_ATOMS_PREVIEW_BACKEND_BASE "
+                "environment variable in the frontend so it can reach the backend.\n"
+                "Do not start the preview services yourself; focus on writing code and "
                 "one-off verification commands.\n\n"
                 f"User request:\n{request.prompt}"
             )
@@ -252,8 +258,8 @@ async def run_agent(
                 logger.warning("[agent:%s] workspace sync failed: %s", trace_id, sync_exc)
 
             try:
-                logger.info("[agent:%s] starting preview server", trace_id)
-                returncode, _, stderr = await sandbox_service.start_dev_server(container_name)
+                logger.info("[agent:%s] starting preview services", trace_id)
+                returncode, _, stderr = await sandbox_service.start_preview_services(container_name)
                 if returncode != 0:
                     stderr_tail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
                     logger.warning(
@@ -265,7 +271,7 @@ async def run_agent(
                     await emit(
                         {
                             "type": "preview_failed",
-                            "reason": "start_dev_failed",
+                            "reason": "start_preview_failed",
                             "returncode": returncode,
                             "stderr": stderr_tail,
                         }
@@ -292,40 +298,87 @@ async def run_agent(
                             }
                         )
                     else:
-                        logger.info("[agent:%s] waiting for preview service", trace_id)
-                        ready = await sandbox_service.wait_for_service(
+                        # Load preview contract for healthcheck paths
+                        contract = load_preview_contract(paths.host_root)
+                        frontend_health_path = contract.frontend.healthcheck_path if contract else "/"
+                        backend_health_path = (
+                            contract.backend.healthcheck_path if contract and contract.backend else "/health"
+                        )
+
+                        logger.info("[agent:%s] waiting for frontend service path=%s", trace_id, frontend_health_path)
+                        frontend_ready = await sandbox_service.wait_for_service(
                             container_name=container_name,
                             port=3000,
+                            path=frontend_health_path,
                             timeout_seconds=60.0,
                             poll_interval_seconds=1.0,
                         )
-                        logger.info("[agent:%s] preview wait completed ready=%s", trace_id, ready)
-                        await WorkspaceRuntimeSessionsService(db).create(
-                            {
-                                "user_id": user_id,
-                                "project_id": project_id,
-                                "container_name": container_name,
-                                "status": "running" if ready else "starting",
-                                "preview_port": preview_port,
-                                "frontend_port": frontend_port,
-                                "backend_port": backend_port,
-                            }
-                        )
-                        if ready:
+                        logger.info("[agent:%s] frontend wait completed ready=%s", trace_id, frontend_ready)
+
+                        backend_ready = True
+                        if contract and contract.backend:
+                            logger.info("[agent:%s] waiting for backend service path=%s", trace_id, backend_health_path)
+                            backend_ready = await sandbox_service.wait_for_service(
+                                container_name=container_name,
+                                port=8000,
+                                path=backend_health_path,
+                                timeout_seconds=60.0,
+                                poll_interval_seconds=1.0,
+                            )
+                            logger.info("[agent:%s] backend wait completed ready=%s", trace_id, backend_ready)
+
+                        if not frontend_ready:
+                            await emit({"type": "preview_failed", "reason": "timeout"})
+                        else:
+                            # Build or update preview session
+                            sessions_service = WorkspaceRuntimeSessionsService(db)
+                            existing_session = await sessions_service.get_by_project(
+                                user_id=user_id,
+                                project_id=project_id,
+                            )
+                            if existing_session and existing_session.preview_session_key:
+                                session_key_fields: dict = {
+                                    "preview_session_key": existing_session.preview_session_key,
+                                }
+                            else:
+                                session_key_fields = new_preview_session_fields()
+
+                            session = await sessions_service.create(
+                                {
+                                    "user_id": user_id,
+                                    "project_id": project_id,
+                                    "container_name": container_name,
+                                    "status": "running",
+                                    "preview_port": preview_port,
+                                    "frontend_port": frontend_port,
+                                    "backend_port": backend_port,
+                                    "frontend_status": "running",
+                                    "backend_status": "running" if backend_ready else "stopped",
+                                    **session_key_fields,
+                                }
+                            )
+
+                            preview_urls = build_preview_urls(session.preview_session_key)
+                            logger.info(
+                                "[agent:%s] preview ready session_key=%s",
+                                trace_id,
+                                session.preview_session_key,
+                            )
                             await emit(
                                 {
                                     "type": "preview_ready",
-                                    "preview_url": (
-                                        f"/api/v1/workspace-runtime/projects/{project_id}/preview/"
+                                    "preview_session_key": session.preview_session_key,
+                                    "preview_expires_at": (
+                                        session.preview_expires_at.isoformat()
+                                        if session.preview_expires_at
+                                        else None
                                     ),
+                                    "preview_frontend_url": preview_urls["preview_frontend_url"],
+                                    "preview_backend_url": preview_urls["preview_backend_url"],
                                     "frontend_port": frontend_port,
-                                }
-                            )
-                        else:
-                            await emit(
-                                {
-                                    "type": "preview_failed",
-                                    "reason": "timeout",
+                                    "backend_port": backend_port,
+                                    "frontend_status": session.frontend_status,
+                                    "backend_status": session.backend_status,
                                 }
                             )
             except Exception as preview_exc:
