@@ -15,6 +15,38 @@ from services.workspace_runtime_sessions import WorkspaceRuntimeSessionsService
 
 
 @pytest.mark.asyncio
+async def test_workspace_runtime_sessions_service_stores_preview_session_fields():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with session_maker() as db:
+            service = WorkspaceRuntimeSessionsService(db)
+            created = await service.create(
+                {
+                    "user_id": "user-123",
+                    "project_id": 42,
+                    "container_name": "atoms-user-123-42",
+                    "status": "running",
+                    "preview_session_key": "preview-session-123",
+                    "preview_expires_at": None,
+                    "frontend_status": "running",
+                    "backend_status": "starting",
+                }
+            )
+
+        assert created.preview_session_key == "preview-session-123"
+        assert created.frontend_status == "running"
+        assert created.backend_status == "starting"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_workspace_runtime_sessions_service_get_by_project():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
 

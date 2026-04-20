@@ -96,13 +96,43 @@ def test_ensure_workspace_runtime_returns_preview_url(monkeypatch):
     client = _make_client()
     response = client.post("/api/v1/workspace-runtime/projects/42/ensure")
     assert response.status_code == 200
-    assert response.json()["preview_url"].endswith("/preview/")
+    assert response.json()["preview_frontend_url"].endswith("/frontend/")
+    assert response.json()["preview_backend_url"].endswith("/backend/")
 
 
 def test_preview_proxy_requires_running_session():
     client = _make_client()
     response = client.get("/api/v1/workspace-runtime/projects/42/preview/")
     assert response.status_code == 404
+
+
+def test_ensure_workspace_runtime_returns_preview_bundle(monkeypatch):
+    async def _fake_ensure(*args, **kwargs):
+        return _FakeSession()
+
+    monkeypatch.setattr("routers.workspace_runtime.ensure_runtime_for_project", _fake_ensure)
+
+    from services import projects as projects_module
+
+    class _FakeProject:
+        id = 42
+        user_id = "user-1"
+
+    async def _fake_get_by_id(self, obj_id, user_id=None):
+        return _FakeProject()
+
+    monkeypatch.setattr(projects_module.ProjectsService, "get_by_id", _fake_get_by_id)
+
+    client = _make_client()
+    response = client.post("/api/v1/workspace-runtime/projects/42/ensure")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["preview_session_key"] == "preview-session-123"
+    assert payload["preview_frontend_url"] == "/preview/preview-session-123/frontend/"
+    assert payload["preview_backend_url"] == "/preview/preview-session-123/backend/"
+    assert payload["frontend_status"] == "running"
+    assert payload["backend_status"] == "starting"
 
 
 # ---------------------------------------------------------------------------
@@ -114,3 +144,7 @@ class _FakeSession:
     container_name = "atoms-user-1-42"
     frontend_port = 3000
     backend_port = 8000
+    preview_session_key = "preview-session-123"
+    preview_expires_at = None
+    frontend_status = "running"
+    backend_status = "starting"

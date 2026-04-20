@@ -21,6 +21,10 @@ class WorkspaceRuntimeSessionsService:
         "preview_port",
         "frontend_port",
         "backend_port",
+        "preview_session_key",
+        "preview_expires_at",
+        "frontend_status",
+        "backend_status",
     }
     REQUIRED_RUNTIME_FIELDS = {"user_id", "project_id", "container_name", "status"}
 
@@ -78,6 +82,14 @@ class WorkspaceRuntimeSessionsService:
             await self.db.rollback()
             logger.exception("Error creating workspace_runtime_sessions record")
             raise
+
+    async def get_by_preview_session_key(self, preview_session_key: str) -> Optional[WorkspaceRuntimeSessions]:
+        result = await self.db.execute(
+            select(WorkspaceRuntimeSessions).where(
+                WorkspaceRuntimeSessions.preview_session_key == preview_session_key
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def get_by_project(
         self,

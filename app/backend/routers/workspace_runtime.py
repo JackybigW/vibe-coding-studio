@@ -10,6 +10,7 @@ from core.database import get_db
 from dependencies.auth import get_current_user
 from schemas.auth import UserResponse
 from schemas.workspace_runtime import WorkspaceRuntimeStatusResponse
+from services.preview_sessions import build_preview_urls, new_preview_session_fields
 from services.project_workspace import ProjectWorkspaceService
 from services.projects import ProjectsService
 from services.sandbox_runtime import SandboxRuntimeService
@@ -96,13 +97,28 @@ async def ensure_workspace_runtime(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
+    if not session.preview_session_key:
+        preview_fields = new_preview_session_fields()
+        sessions_service = WorkspaceRuntimeSessionsService(db)
+        for key, value in preview_fields.items():
+            setattr(session, key, value)
+        await db.commit()
+        await db.refresh(session)
+
+    preview_urls = build_preview_urls(session.preview_session_key)
+
     return WorkspaceRuntimeStatusResponse(
         project_id=project_id,
         status=session.status,
         container_name=session.container_name,
-        preview_url=f"/api/v1/workspace-runtime/projects/{project_id}/preview/",
+        preview_session_key=session.preview_session_key,
+        preview_expires_at=session.preview_expires_at,
+        preview_frontend_url=preview_urls["preview_frontend_url"],
+        preview_backend_url=preview_urls["preview_backend_url"],
         frontend_port=session.frontend_port,
         backend_port=session.backend_port,
+        frontend_status=session.frontend_status,
+        backend_status=session.backend_status,
     )
 
 
