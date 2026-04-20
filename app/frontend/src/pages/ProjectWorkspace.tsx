@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { client } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { WorkspaceProvider, useWorkspace } from "@/contexts/WorkspaceContext";
+import { ensureWorkspaceRuntime } from "@/lib/workspaceRuntime";
 import ChatPanel from "@/components/ChatPanel";
 import CodeEditor from "@/components/CodeEditor";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,7 @@ function WorkspaceInner() {
   const {
     setProjectId,
     previewHtml,
+    previewUrl,
     terminalLogs,
     fileVersion,
   } = useWorkspace();
@@ -88,6 +90,14 @@ function WorkspaceInner() {
   useEffect(() => {
     setProjectId(projectId);
   }, [projectId, setProjectId]);
+
+  // Ensure workspace runtime is ready
+  useEffect(() => {
+    if (!projectId) return;
+    ensureWorkspaceRuntime(projectId).catch((err) => {
+      console.error("Failed to ensure workspace runtime:", err);
+    });
+  }, [projectId]);
 
   // Refresh preview when files change
   useEffect(() => {
@@ -227,7 +237,7 @@ function WorkspaceInner() {
               </div>
               <div className="flex-1 flex items-center bg-[#18181B] border border-[#27272A] rounded-lg px-3 py-1.5">
                 <Globe className="w-3.5 h-3.5 text-[#52525B] mr-2" />
-                <span className="text-xs text-[#71717A]">localhost:5173</span>
+                <span className="text-xs text-[#71717A]">{previewUrl || "localhost:5173"}</span>
               </div>
               <button
                 className="text-[#71717A] hover:text-white p-1.5"
@@ -245,13 +255,14 @@ function WorkspaceInner() {
                   height: "100%",
                 }}
               >
-                {previewHtml ? (
+                {previewUrl || previewHtml ? (
                   <iframe
                     key={previewKey}
-                    srcDoc={previewHtml}
+                    src={previewUrl || undefined}
+                    srcDoc={!previewUrl ? previewHtml : undefined}
                     title="App Preview"
                     className="w-full h-full border-0"
-                    sandbox="allow-scripts allow-same-origin"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">

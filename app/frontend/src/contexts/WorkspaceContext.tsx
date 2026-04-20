@@ -19,9 +19,12 @@ interface WorkspaceContextType {
   projectId: number | null;
   setProjectId: (id: number | null) => void;
   previewHtml: string;
+  previewUrl: string;
+  setPreviewUrl: (url: string) => void;
   terminalLogs: string[];
   addTerminalLog: (log: string) => void;
   fileVersion: number;
+  reloadFiles: () => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType>({
@@ -32,9 +35,12 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   projectId: null,
   setProjectId: () => {},
   previewHtml: "",
+  previewUrl: "",
+  setPreviewUrl: () => {},
   terminalLogs: [],
   addTerminalLog: () => {},
   fileVersion: 0,
+  reloadFiles: async () => {},
 });
 
 function getLanguageFromPath(filePath: string): string {
@@ -120,6 +126,7 @@ function buildPreviewHtml(files: ProjectFile[]): string {
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string>("");
   const [terminalLogs, setTerminalLogs] = useState<string[]>([
     "$ atoms init project",
     "✓ Project initialized",
@@ -140,6 +147,31 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const addTerminalLog = useCallback((log: string) => {
     setTerminalLogs((prev) => [...prev, log]);
+  }, []);
+
+  const reloadFiles = useCallback(async () => {
+    const pid = projectIdRef.current;
+    if (!pid) return;
+    try {
+      const res = await client.entities.project_files.query({
+        query: { project_id: pid },
+        sort: "file_path",
+        limit: 500,
+      });
+      if (res?.data?.items) {
+        setFiles(res.data.items.map((f: Record<string, unknown>) => ({
+          id: f.id as number,
+          file_path: f.file_path as string,
+          file_name: f.file_name as string,
+          content: (f.content as string) || "",
+          language: (f.language as string) || "plaintext",
+          is_directory: Boolean(f.is_directory),
+        })));
+        setFileVersion(v => v + 1);
+      }
+    } catch (err) {
+      console.error("Failed to reload files:", err);
+    }
   }, []);
 
   const writeFile = useCallback(
@@ -238,9 +270,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         projectId,
         setProjectId,
         previewHtml,
+        previewUrl,
+        setPreviewUrl,
         terminalLogs,
         addTerminalLog,
         fileVersion,
+        reloadFiles,
       }}
     >
       {children}
