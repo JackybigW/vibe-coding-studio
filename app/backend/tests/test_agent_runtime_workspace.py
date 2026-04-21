@@ -50,6 +50,22 @@ async def test_project_file_operator_rejects_protected_backend_paths(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_project_file_operator_allows_reads_for_protected_backend_paths(tmp_path):
+    operator = ProjectFileOperator(
+        host_root=tmp_path / "user-1" / "1",
+        container_root=Path("/workspace"),
+    )
+    operator.host_root.mkdir(parents=True, exist_ok=True)
+    protected_file = operator.host_root / "app" / "backend" / "core" / "config.py"
+    protected_file.parent.mkdir(parents=True, exist_ok=True)
+    protected_file.write_text("safe read", encoding="utf-8")
+
+    content = await operator.read_file("/workspace/app/backend/core/config.py")
+
+    assert content == "safe read"
+
+
+@pytest.mark.asyncio
 async def test_project_file_operator_allows_docs_and_frontend_paths(tmp_path):
     operator = ProjectFileOperator(host_root=tmp_path, container_root=Path("/workspace"))
     await operator.write_file("/workspace/docs/todo.md", "# Todo")
@@ -91,6 +107,26 @@ async def test_str_replace_editor_rejects_traversal_into_protected_path(tmp_path
             path="/workspace/app/frontend/../backend/core/config.py",
             file_text="bad",
         )
+
+
+@pytest.mark.asyncio
+async def test_str_replace_editor_allows_view_on_protected_backend_paths(tmp_path):
+    operator = ProjectFileOperator(
+        host_root=tmp_path / "user-1" / "1",
+        container_root=Path("/workspace"),
+    )
+    operator.host_root.mkdir(parents=True, exist_ok=True)
+    protected_file = operator.host_root / "app" / "backend" / "core" / "config.py"
+    protected_file.parent.mkdir(parents=True, exist_ok=True)
+    protected_file.write_text("safe read", encoding="utf-8")
+
+    editor = StrReplaceEditor.with_operator(operator)
+    result = await editor.execute(
+        command="view",
+        path="/workspace/app/backend/core/config.py",
+    )
+
+    assert "safe read" in result
 
 
 @pytest.mark.asyncio

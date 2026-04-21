@@ -80,6 +80,11 @@ def validate_workspace_path(path: PathLike) -> None:
         )
 
 
+def validate_workspace_write_path(path: PathLike) -> None:
+    """Validate that a workspace path is eligible for mutation."""
+    validate_workspace_path(path)
+
+
 @runtime_checkable
 class FileOperator(Protocol):
     """Interface for file operations in different environments."""
@@ -182,18 +187,21 @@ class ProjectFileOperator(LocalFileOperator):
             relative = raw.relative_to(self.container_root)
         except ValueError:
             raise ToolError(f"Path must live under {self.container_root}, got: {raw}")
-        validate_workspace_path(raw)
         host_path = (self.host_root / relative).resolve()
         resolved_root = self.host_root.resolve()
         if host_path != resolved_root and resolved_root not in host_path.parents:
             raise ToolError("Path escapes project workspace")
         return host_path
 
+    def _to_host_write_path(self, path: PathLike) -> Path:
+        validate_workspace_write_path(path)
+        return self._to_host_path(path)
+
     async def read_file(self, path: PathLike) -> str:
         return await super().read_file(self._to_host_path(path))
 
     async def write_file(self, path: PathLike, content: str) -> None:
-        host_path = self._to_host_path(path)
+        host_path = self._to_host_write_path(path)
         host_path.parent.mkdir(parents=True, exist_ok=True)
         await super().write_file(host_path, content)
         if self._event_sink is not None:
