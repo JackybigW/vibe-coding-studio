@@ -11,6 +11,7 @@ for _, module_name, is_pkg in pkgutil.iter_modules(__path__):
 from models.auth import OIDCState, User
 from models.credit_usage import Credit_usage
 from models.messages import Messages
+from models.agent_realtime_tickets import AgentRealtimeTickets
 from models.project_files import Project_files
 from models.projects import Projects
 from models.user_profiles import User_profiles
@@ -20,6 +21,7 @@ __all__ = [
     "OIDCState",
     "User",
     "Credit_usage",
+    "AgentRealtimeTickets",
     "Messages",
     "Project_files",
     "Projects",

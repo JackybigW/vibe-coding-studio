@@ -28,6 +28,7 @@ async def issue_session_ticket(
         raise HTTPException(status_code=404, detail="Project not found")
 
     ticket = await get_agent_realtime_service().issue_ticket(
+        db,
         user_id=current_user.id,
         project_id=request.project_id,
         model=request.model,
@@ -41,12 +42,12 @@ async def issue_session_ticket(
 
 
 @router.websocket("/session/ws")
-async def agent_session_websocket(websocket: WebSocket):
+async def agent_session_websocket(websocket: WebSocket, db: AsyncSession = Depends(get_db)):
     ticket_value = websocket.query_params.get("ticket")
     await websocket.accept()
 
     ticket_service = get_agent_realtime_service()
-    ticket = await ticket_service.consume_ticket(ticket_value or "")
+    ticket = await ticket_service.consume_ticket(db, ticket_value or "")
     if ticket is None:
         await websocket.send_json(AgentRealtimeErrorPayload().model_dump())
         await websocket.close(code=1008)

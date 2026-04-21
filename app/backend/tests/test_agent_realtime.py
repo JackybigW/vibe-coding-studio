@@ -1,9 +1,13 @@
 import asyncio
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from starlette.websockets import WebSocketDisconnect
 
+from core.database import Base
+from models.projects import Projects
 from routers.agent_realtime import router
 from services.agent_realtime import AgentRealtimeService
 
@@ -22,8 +26,36 @@ def _configure_jwt_env(monkeypatch):
     monkeypatch.setenv("JWT_EXPIRE_MINUTES", "60")
 
 
-def _make_client(monkeypatch, db=None):
+async def _create_schema(engine):
+    import models  # noqa: F401
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def _seed_projects(session_maker):
+    async with session_maker() as db:
+        db.add_all(
+            [
+                Projects(id=42, user_id="user-1", name="Owned project"),
+                Projects(id=43, user_id="other-user", name="Other project"),
+            ]
+        )
+        await db.commit()
+
+
+def _build_environment(tmp_path: Path, monkeypatch):
     _configure_jwt_env(monkeypatch)
+
+    db_path = tmp_path / "agent_realtime.sqlite3"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    asyncio.run(_create_schema(engine))
+    asyncio.run(_seed_projects(session_maker))
+
+    service = AgentRealtimeService()
+
     from dependencies.auth import get_current_user
     from core.database import get_db
 
@@ -31,97 +63,115 @@ def _make_client(monkeypatch, db=None):
         return _FakeCurrentUser()
 
     async def _fake_get_db():
-        yield db or _FakeDB()
+        async with session_maker() as db:
+            yield db
 
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = _fake_get_current_user
     app.dependency_overrides[get_db] = _fake_get_db
-    return TestClient(app)
-
-
-class _FakeProject:
-    def __init__(self, owner_id: str):
-        self.user_id = owner_id
-
-
-class _FakeProjectsService:
-    def __init__(self, db):
-        self.db = db
-        self.requests: list[tuple[int, str]] = []
-
-    async def get_by_id(self, obj_id: int, user_id: str | None = None):
-        self.requests.append((obj_id, user_id or ""))
-        if obj_id == 42 and user_id == "user-1":
-            return _FakeProject(owner_id=user_id)
-        return None
-
-
-class _FakeDB:
-    pass
-
-
-def test_issue_session_ticket_and_reject_invalid_websocket(monkeypatch):
-    _configure_jwt_env(monkeypatch)
-    service = AgentRealtimeService()
-    monkeypatch.setattr("routers.agent_realtime.ProjectsService", _FakeProjectsService)
     monkeypatch.setattr("routers.agent_realtime.get_agent_realtime_service", lambda: service)
-    client = _make_client(monkeypatch)
 
-    response = client.post("/api/v1/agent/session-ticket", json={"project_id": 42, "model": "gpt-4.1"})
-    assert response.status_code == 200
-
-    payload = response.json()
-    assert payload["project_id"] == 42
-    assert payload["assistant_role"] == "engineer"
-    ticket = payload["ticket"]
-    assert isinstance(ticket, str)
-    assert ticket
-
-    consumed = asyncio.run(service.consume_ticket(ticket))
-    assert consumed is not None
-    assert consumed.model == "gpt-4.1"
-    assert consumed.project_id == 42
-
-    with client.websocket_connect("/api/v1/agent/session/ws?ticket=invalid-ticket") as websocket:
-        message = websocket.receive_json()
-        assert message == {"type": "error", "code": "invalid_ticket"}
-        try:
-            websocket.receive_json()
-            raise AssertionError("expected websocket to close after invalid ticket")
-        except WebSocketDisconnect:
-            pass
-
-    with client.websocket_connect(f"/api/v1/agent/session/ws?ticket={ticket}") as websocket:
-        message = websocket.receive_json()
-        assert message == {
-            "type": "session.state",
-            "status": "idle",
-            "project_id": 42,
-            "assistant_role": "engineer",
-        }
+    return app, engine, session_maker, service
 
 
-def test_issue_session_ticket_denies_unowned_project(monkeypatch):
-    _configure_jwt_env(monkeypatch)
-    monkeypatch.setattr("routers.agent_realtime.ProjectsService", _FakeProjectsService)
-    client = _make_client(monkeypatch)
+def test_issue_session_ticket_and_reject_invalid_websocket(monkeypatch, tmp_path):
+    app, engine, session_maker, service = _build_environment(tmp_path, monkeypatch)
 
-    response = client.post("/api/v1/agent/session-ticket", json={"project_id": 43, "model": "gpt-4.1"})
+    with TestClient(app) as client:
+        response = client.post("/api/v1/agent/session-ticket", json={"project_id": 42, "model": "gpt-4.1"})
+        assert response.status_code == 200
 
-    assert response.status_code == 404
+        payload = response.json()
+        assert payload["project_id"] == 42
+        assert payload["assistant_role"] == "engineer"
+        ticket = payload["ticket"]
+        assert isinstance(ticket, str)
+        assert ticket
+
+        async def _consume():
+            async with session_maker() as db:
+                return await service.consume_ticket(db, ticket)
+
+        consumed = asyncio.run(_consume())
+        assert consumed is not None
+        assert consumed.model == "gpt-4.1"
+        assert consumed.project_id == 42
+
+        response2 = client.post("/api/v1/agent/session-ticket", json={"project_id": 42, "model": "gpt-4.1"})
+        assert response2.status_code == 200
+        websocket_ticket = response2.json()["ticket"]
+
+        with client.websocket_connect("/api/v1/agent/session/ws?ticket=invalid-ticket") as websocket:
+            message = websocket.receive_json()
+            assert message == {"type": "error", "code": "invalid_ticket"}
+            try:
+                websocket.receive_json()
+                raise AssertionError("expected websocket to close after invalid ticket")
+            except WebSocketDisconnect:
+                pass
+
+        with client.websocket_connect(f"/api/v1/agent/session/ws?ticket={websocket_ticket}") as websocket:
+            message = websocket.receive_json()
+            assert message == {
+                "type": "session.state",
+                "status": "idle",
+                "project_id": 42,
+                "assistant_role": "engineer",
+            }
+
+    asyncio.run(engine.dispose())
 
 
-def test_agent_realtime_service_rejects_invalid_or_expired_tickets(monkeypatch):
-    _configure_jwt_env(monkeypatch)
+def test_issue_session_ticket_denies_unowned_project(monkeypatch, tmp_path):
+    app, engine, _, _ = _build_environment(tmp_path, monkeypatch)
 
-    invalid_service = AgentRealtimeService()
-    assert asyncio.run(invalid_service.consume_ticket("not-a-valid-ticket")) is None
+    with TestClient(app) as client:
+        response = client.post("/api/v1/agent/session-ticket", json={"project_id": 43, "model": "gpt-4.1"})
+        assert response.status_code == 404
 
-    expired_service = AgentRealtimeService(ttl_minutes=-1)
+    asyncio.run(engine.dispose())
 
-    async def _issue_and_consume_expired():
-        ticket = await expired_service.issue_ticket(user_id="user-1", project_id=42, model="gpt-4.1")
-        return await expired_service.consume_ticket(ticket.ticket)
 
-    assert asyncio.run(_issue_and_consume_expired()) is None
+def test_agent_realtime_service_rejects_invalid_reuse_and_expired_tickets(monkeypatch, tmp_path):
+    _, engine, session_maker, service = _build_environment(tmp_path, monkeypatch)
+
+    async def _run():
+        async with session_maker() as db:
+            ticket = await service.issue_ticket(db, user_id="user-1", project_id=42, model="gpt-4.1")
+            assert ticket.model == "gpt-4.1"
+
+            first = await service.consume_ticket(db, ticket.ticket)
+            assert first is not None
+            assert first.model == "gpt-4.1"
+
+            second = await service.consume_ticket(db, ticket.ticket)
+            assert second is None
+
+            assert await service.consume_ticket(db, "not-a-valid-ticket") is None
+
+        expired_service = AgentRealtimeService(ttl_minutes=-1)
+        async with session_maker() as db:
+            expired_ticket = await expired_service.issue_ticket(
+                db,
+                user_id="user-1",
+                project_id=42,
+                model="gpt-4.1",
+            )
+            assert await expired_service.consume_ticket(db, expired_ticket.ticket) is None
+
+    asyncio.run(_run())
+    asyncio.run(engine.dispose())
+
+
+def test_issue_session_ticket_rejects_overlong_model(monkeypatch, tmp_path):
+    app, engine, _, _ = _build_environment(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/agent/session-ticket",
+            json={"project_id": 42, "model": "g" * 65},
+        )
+        assert response.status_code == 422
+
+    asyncio.run(engine.dispose())

@@ -6,7 +6,11 @@ from pydantic import BaseModel, Field
 
 class AgentSessionTicketRequest(BaseModel):
     project_id: int = Field(..., ge=1, description="Project to bind the realtime session ticket to.")
-    model: str | None = Field(default=None, description="Optional model override to carry with the ticket.")
+    model: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Optional model override to carry with the ticket.",
+    )
 
 
 class AgentSessionTicketResponse(BaseModel):

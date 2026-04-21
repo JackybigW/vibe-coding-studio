@@ -1,11 +1,13 @@
+import hashlib
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from core.auth import AccessTokenError, create_access_token, decode_access_token
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
 
-
-_AGENT_REALTIME_TICKET_TYPE = "agent_realtime_session"
+from models.agent_realtime_tickets import AgentRealtimeTickets
 
 
 @dataclass(slots=True)
@@ -21,66 +23,76 @@ class AgentRealtimeService:
     def __init__(self, ttl_minutes: int = 5):
         self._ttl_minutes = ttl_minutes
 
+    @staticmethod
+    def _hash_ticket(ticket: str) -> str:
+        return hashlib.sha256(ticket.encode("utf-8")).hexdigest()
+
     async def issue_ticket(
         self,
+        db: AsyncSession,
         *,
         user_id: str,
         project_id: int,
         model: Optional[str] = None,
     ) -> AgentRealtimeTicket:
+        raw_ticket = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=self._ttl_minutes)
-        ticket = create_access_token(
-            {
-                "sub": str(user_id),
-                "project_id": int(project_id),
-                "model": model,
-                "ticket_type": _AGENT_REALTIME_TICKET_TYPE,
-            },
-            expires_minutes=self._ttl_minutes,
+        record = AgentRealtimeTickets(
+            ticket_hash=self._hash_ticket(raw_ticket),
+            user_id=str(user_id),
+            project_id=int(project_id),
+            model=model,
+            expires_at=expires_at,
         )
+        try:
+            db.add(record)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+
         return AgentRealtimeTicket(
-            ticket=ticket,
+            ticket=raw_ticket,
             user_id=str(user_id),
             project_id=int(project_id),
             model=model,
             expires_at=expires_at,
         )
 
-    async def consume_ticket(self, ticket: str) -> Optional[AgentRealtimeTicket]:
-        try:
-            payload = decode_access_token(ticket)
-        except AccessTokenError:
-            return None
-
-        if payload.get("ticket_type") != _AGENT_REALTIME_TICKET_TYPE:
-            return None
-
-        project_id = payload.get("project_id")
-        sub = payload.get("sub")
-        expires_at_raw = payload.get("exp")
-        if sub is None or project_id is None or expires_at_raw is None:
-            return None
-
-        try:
-            expires_at = datetime.fromtimestamp(float(expires_at_raw), tz=timezone.utc)
-        except (TypeError, ValueError, OverflowError):
-            return None
-
-        model = payload.get("model")
-        if model is not None and not isinstance(model, str):
-            return None
+    async def consume_ticket(self, db: AsyncSession, ticket: str) -> Optional[AgentRealtimeTicket]:
+        ticket_hash = self._hash_ticket(ticket)
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(AgentRealtimeTickets)
+            .where(AgentRealtimeTickets.ticket_hash == ticket_hash)
+            .where(AgentRealtimeTickets.consumed_at.is_(None))
+            .where(AgentRealtimeTickets.expires_at > now)
+            .values(consumed_at=now)
+            .returning(
+                AgentRealtimeTickets.user_id,
+                AgentRealtimeTickets.project_id,
+                AgentRealtimeTickets.model,
+                AgentRealtimeTickets.expires_at,
+            )
+        )
 
         try:
-            parsed_project_id = int(project_id)
-        except (TypeError, ValueError):
+            result = await db.execute(stmt)
+            row = result.mappings().one_or_none()
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+
+        if row is None:
             return None
 
         return AgentRealtimeTicket(
             ticket=ticket,
-            user_id=str(sub),
-            project_id=parsed_project_id,
-            model=model,
-            expires_at=expires_at,
+            user_id=row["user_id"],
+            project_id=int(row["project_id"]),
+            model=row["model"],
+            expires_at=row["expires_at"],
         )
 
 
