@@ -1,4 +1,4 @@
-# Leader Engineer Realtime Orchestration Design
+# Engineer First Realtime Workspace Streaming Design
 
 Date: 2026-04-21
 Status: Proposed
@@ -8,89 +8,97 @@ Branch: `feature/leader-engineer-realtime-orchestration`
 
 Atoms should split realtime behavior into two distinct planes:
 
-- a **control plane** for `leader`, `engineer`, editor sync, progress, terminal summaries, and stop/cancel
+- a **control plane** for the platform-owned SWE session, progress, terminal summaries, file updates, and stop/cancel
 - an **app plane** for the generated SaaS app running inside App Viewer
 
-The recommended design is:
+For this iteration, Atoms should **not** introduce a separate `leader` agent yet.
 
-- move the agent session from `POST + SSE` to a dedicated authenticated WebSocket session
+The recommended staged design is:
+
+- keep the current `engineer` SWE as the only user-facing chat participant
+- move the control plane from `POST + SSE` to an authenticated WebSocket session
 - keep App Viewer on the existing same-origin preview gateway over HTTP, with WebSocket pass-through for the app itself
-- make `leader` the only agent that speaks directly to the user in the left chat panel
-- keep `engineer` mostly invisible to the user, emitting structured progress, file-change, and terminal events instead of raw chat messages
-- stream workspace changes into the editor as the engineer writes, so the right pane updates during execution rather than only after a final snapshot
+- stop rendering raw tool calls, tool results, and code dumps in the left chat panel
+- stream workspace file updates into the editor while the engineer writes, so the right pane changes during execution rather than only after a final sync
 - make stop/cancel a first-class session command, not a best-effort fetch abort
 
-This is a `WebSocket-first orchestration + HTTP preview runtime` design, not a full rewrite of every app API onto WebSocket.
+This is an **engineer-first realtime foundation**. A separate `leader -> engineer` orchestration layer can be added later on top of the same transport and event model.
 
 ## Problem Statement
 
-The current system can run an SWE agent and then bring up preview, but it does not match the product behavior required for a leader-engineer experience.
+The current system can run an SWE agent and then bring up preview, but the user experience is still wrong for an interactive coding workspace.
 
 Current gaps:
 
-- the left chat still renders raw agent/tool events as chat content, so users see terminal commands and code-like details instead of a coherent leader narrative
-- the primary runtime path is still modeled as `request -> long SSE stream -> final workspace sync`, which is awkward for stop, interrupt, agent delegation, and resumable state
+- the left chat renders raw `assistant`, `tool_call`, and `tool_result` events as normal chat content
+- users therefore see terminal commands, JSON arguments, and code-like payloads in the main conversation surface
 - workspace updates reach the right editor only after a snapshot/sync boundary, not as live edits while the engineer is working
-- App Viewer is now full-stack same-origin preview, but it is a separate concern from agent orchestration and should not be overloaded onto the same realtime channel
-- there is no durable control model for `leader directs engineer`, `user stops run`, `engineer reports progress`, or `session reconnects`
+- the runtime path is still modeled as `request -> long SSE stream -> final workspace sync`, which is awkward for stop, reconnect, and durable session state
+- App Viewer is already a separate full-stack runtime plane and should not be overloaded onto the same semantics as platform control messages
 
 As a result:
 
-- the user experience feels like one noisy agent instead of a leader coordinating work
-- stop/cancel semantics are weak
+- the engineer feels noisy instead of focused
+- the user cannot clearly distinguish progress updates from implementation details
 - editor updates lag behind the agent
-- the architecture will get harder to extend once multi-agent orchestration becomes more central
+- stop/cancel is weak
+- the current transport is not a good base for later multi-agent orchestration
 
 ## Goals
 
-- Make `leader` the user-facing agent in the left chat panel.
-- Let `leader` stream user-facing reasoning and progress in real time.
-- Let `leader` direct `engineer` work internally during the same realtime session.
-- Stream workspace file updates into the right editor while the engineer is working.
-- Keep App Viewer interactive for real app flows like navigation, forms, auth, subscriptions, and other backend-backed behavior.
+- Keep `engineer` as the only user-facing chat participant for this phase.
+- Let `engineer` stream short natural-language progress updates in real time.
+- Remove raw terminal commands, tool payloads, and code dumps from the main chat transcript.
+- Stream workspace file updates into the right editor while the engineer is actively writing.
+- Keep App Viewer interactive for real app flows like navigation, forms, auth, subscriptions, and backend-backed behavior.
 - Allow the user to stop the current run at any time.
 - Preserve the current same-origin preview gateway for the generated app runtime.
-- Keep the design compatible with future reconnect/resume and richer multi-agent coordination.
+- Build a transport and event model that can later support a separate `leader` without redoing the foundation.
 
 ## Non Goals
 
+- Introduce a separate `leader` agent in this iteration.
 - Rewrite all CRUD APIs to WebSocket.
-- Replace the existing same-origin preview gateway with a remote-DOM or streamed-UI protocol.
+- Replace the existing same-origin preview gateway with a remote DOM or streamed UI protocol.
 - Build multiplayer collaboration or CRDT-based co-editing in this iteration.
 - Expose every engineer/tool event directly in the chat transcript.
 - Solve production deployment of generated apps beyond preview/runtime concerns.
 
 ## Current Findings
 
-### 1. The chat plane and work plane are still conflated
+### 1. Chat currently mixes user-facing progress with raw tool output
 
 Relevant files:
 
 - [app/frontend/src/components/ChatPanel.tsx](/Users/jackywang/Documents/atoms/.worktrees/feature-leader-engineer-realtime-orchestration/app/frontend/src/components/ChatPanel.tsx)
+- [app/backend/openmanus_runtime/streaming.py](/Users/jackywang/Documents/atoms/.worktrees/feature-leader-engineer-realtime-orchestration/app/backend/openmanus_runtime/streaming.py)
 - [app/backend/routers/agent_runtime.py](/Users/jackywang/Documents/atoms/.worktrees/feature-leader-engineer-realtime-orchestration/app/backend/routers/agent_runtime.py)
 
 Current behavior:
 
-- the frontend consumes SSE events and appends `assistant`, `tool_call`, and `tool_result` into the left message list
-- terminal details and tool payloads leak into the main conversation surface
-- the backend has one agent stream, not an explicit leader/engineer session model
+- the backend emits `assistant`, `tool_call`, and `tool_result`
+- the frontend appends all three event types into the left message list
+- terminal details and tool payloads therefore leak into the main chat transcript
 
-This prevents a clean “leader talks, engineer works” user experience.
+This is the immediate reason users see terminal commands and code-oriented payloads in the chat panel.
 
-### 2. Editor updates are delayed behind backend sync boundaries
+### 2. Editor updates are delayed behind a final workspace sync
 
 Relevant files:
 
 - [app/frontend/src/contexts/WorkspaceContext.tsx](/Users/jackywang/Documents/atoms/.worktrees/feature-leader-engineer-realtime-orchestration/app/frontend/src/contexts/WorkspaceContext.tsx)
 - [app/backend/routers/agent_runtime.py](/Users/jackywang/Documents/atoms/.worktrees/feature-leader-engineer-realtime-orchestration/app/backend/routers/agent_runtime.py)
+- [app/backend/openmanus_runtime/tool/file_operators.py](/Users/jackywang/Documents/atoms/.worktrees/feature-leader-engineer-realtime-orchestration/app/backend/openmanus_runtime/tool/file_operators.py)
 
 Current behavior:
 
 - the backend snapshots the workspace after `agent.run()` completes
-- the frontend reloads files on `workspace_sync`
-- the editor does not see intermediate edits while the engineer is actively writing
+- the frontend reacts to `workspace_sync` by re-querying all project files
+- the editor does not see intermediate writes while the engineer is actively changing files
 
-### 3. App Viewer is already its own runtime plane
+This is the immediate reason the right editor lags behind the actual coding work.
+
+### 3. App Viewer is already a separate runtime plane
 
 Relevant files:
 
@@ -100,78 +108,79 @@ Relevant files:
 Current behavior:
 
 - App Viewer runs a real frontend/backend preview through same-origin gateway routes
-- the app inside the iframe can already use HTTP and preview WebSocket pass-through
+- the app inside the iframe can already use normal HTTP behavior and preview WebSocket pass-through
 
-This means App Viewer is not the problem that the orchestration WebSocket needs to solve. It should remain a browser/runtime concern, not an agent-control concern.
+This means App Viewer should remain an app/runtime concern. It should not be collapsed into the same semantics as the platform orchestration channel.
 
 ## Approaches Considered
 
-### Option A: Extend the current SSE model
+### Option A: Patch the current SSE path
 
 Description:
 
 - keep `POST /api/v1/agent/run`
-- add more SSE event types for leader progress, file changes, stop state, and engineer activity
-- add extra HTTP endpoints for cancel/interrupt/session state
+- filter tool events out of chat in the frontend
+- add more SSE event types for progress and file writes
+- keep stop as request abort plus ad hoc server behavior
 
 Pros:
 
-- smallest immediate diff
-- preserves more of the current backend path
-- lower short-term migration cost
+- smallest short-term diff
+- fastest path to a limited cleanup
 
 Cons:
 
 - still splits realtime state across SSE down + HTTP up
-- stop, delegation, and session resume remain awkward
-- harder to model leader-engineer orchestration cleanly
-- chat/event coupling likely remains messy
+- stop, reconnect, and session lifecycle remain awkward
+- keeps a transport we already know is weak for the long-term product direction
 
 Decision:
 
-- rejected as a temporary patch, not a good foundation
+- rejected as too temporary
 
-### Option B: Hybrid dual-plane architecture
+### Option B: Engineer-first hybrid dual-plane architecture
 
 Description:
 
-- move the agent/orchestration session onto WebSocket
+- move the platform control plane onto WebSocket
+- keep only one visible assistant role for now: `engineer`
 - keep App Viewer on the current same-origin preview gateway over HTTP
 - allow preview gateway WebSocket pass-through for the app itself
 - leave normal CRUD APIs on REST
 
 Pros:
 
-- cleanly matches the product model
-- gives `leader`, `engineer`, stop, progress, and editor sync one realtime control channel
-- does not force preview/runtime resources into an unnatural WebSocket-only model
-- avoids rewriting all CRUD APIs
+- directly addresses the two immediate user-facing problems
+- gives progress, stop, terminal separation, and file streaming one coherent control channel
+- does not force App Viewer into the wrong abstraction
+- creates the right foundation for a future `leader` without forcing that complexity into this iteration
 
 Cons:
 
-- the system uses three communication modes: REST, orchestration WebSocket, preview HTTP/WS proxy
-- requires frontend and backend session-state refactor
+- introduces a session-state refactor on frontend and backend
+- the system still uses multiple communication modes: REST, orchestration WebSocket, preview HTTP/WS proxy
 
 Decision:
 
 - recommended
 
-### Option C: Full WebSocket for everything
+### Option C: Build full leader-engineer orchestration now
 
 Description:
 
-- migrate agent orchestration, editor sync, preview control, and broader app interactions onto WebSocket
+- introduce a visible `leader`
+- split internal `engineer` work immediately
+- redesign the whole chat surface around those two roles in one step
 
 Pros:
 
-- most uniform protocol story
-- long-term could support richer collaboration primitives
+- closest to the long-term product model
 
 Cons:
 
-- far larger migration
-- wrong abstraction for App Viewer page/resource loading
-- would conflate platform control traffic with generated app runtime traffic
+- larger product and implementation jump
+- mixes transport work, UX cleanup, role architecture, and orchestration design into one change
+- higher risk of shipping none of the practical improvements quickly
 
 Decision:
 
@@ -184,10 +193,10 @@ Decision:
 Atoms should explicitly separate:
 
 - **Control Plane**
-  - leader stream
-  - engineer progress
+  - engineer chat stream
+  - progress updates
   - terminal summaries
-  - file patches
+  - file snapshots
   - stop/cancel
   - session lifecycle
 - **App Plane**
@@ -201,11 +210,11 @@ Rule:
 - control plane runs through a platform-owned WebSocket session
 - app plane runs through the existing same-origin preview gateway
 
-This preserves browser-native app behavior inside App Viewer while giving the platform a robust realtime orchestration channel.
+This preserves browser-native app behavior inside App Viewer while giving the platform a robust realtime control channel.
 
 ## 2. Session Model
 
-Introduce a first-class realtime orchestration session per active workspace run.
+Introduce a first-class realtime session per active workspace run.
 
 Recommended session identity:
 
@@ -214,8 +223,8 @@ Recommended session identity:
 - `user_id`
 - `run_id`
 - `status`: `idle | starting | running | stopping | stopped | failed | completed`
-- `leader_state`
-- `engineer_state`
+- `assistant_role`: `engineer`
+- `assistant_state`
 - `connected_at`
 - `last_heartbeat_at`
 
@@ -233,37 +242,26 @@ Reason:
 - a short-lived ticket is safer than pushing the long-lived bearer token into the WebSocket URL
 - this keeps preview auth and orchestration auth separate
 
-## 3. Role Model
+## 3. Assistant Model
 
-### Leader
+For this phase, there is only one visible assistant role:
 
-Visible to the user.
+- `engineer`
 
 Responsibilities:
 
 - receives the user message
-- streams the user-facing explanation
-- announces the plan or progress in natural language
-- decides when to hand work to engineer
-- decides when to summarize tool outcomes
-- reports completion, failure, or blocked state
-
-### Engineer
-
-Not a normal chat participant.
-
-Responsibilities:
-
+- streams short natural-language acknowledgement and progress updates
 - edits files
 - runs commands
-- emits structured progress/status
-- emits file-change events
-- emits terminal/tool events for debug surfaces
+- emits structured terminal/debug output
+- emits file-update events
+- reports completion, failure, or blocked state
 
 UI rule:
 
-- left chat panel renders leader output only
-- engineer output appears as progress/status and editor/terminal updates, not raw chat dumps
+- the left chat panel renders only user messages plus the engineer's user-facing stream
+- tool-level detail appears in progress rows, terminal logs, and editor updates, not as normal chat bubbles
 
 ## 4. WebSocket Protocol
 
@@ -274,13 +272,13 @@ Use typed events instead of overloading chat messages.
 - `session.start`
   - start realtime orchestration for a project
 - `user.message`
-  - user prompt for leader
+  - user prompt for engineer
 - `run.stop`
   - user stops current run
 - `session.resume`
   - reconnect to existing session state
 - `ui.state`
-  - optional lightweight hints like current tab/open file
+  - optional lightweight hints like current tab or open file
 - `ping`
   - heartbeat
 
@@ -288,14 +286,12 @@ Use typed events instead of overloading chat messages.
 
 - `session.state`
   - session lifecycle and status changes
-- `leader.delta`
-  - streaming leader text chunks
-- `leader.message_done`
-  - final leader message boundary
+- `assistant.delta`
+  - streaming engineer text chunks for the main chat bubble
+- `assistant.message_done`
+  - final engineer message boundary
 - `progress`
-  - short user-facing progress entries
-- `engineer.state`
-  - hidden engineer status for UI state/debug
+  - short user-facing progress entries such as "updating auth flow" or "wiring preview backend"
 - `terminal.log`
   - terminal/debug output for terminal panel only
 - `file.snapshot`
@@ -311,13 +307,13 @@ Use typed events instead of overloading chat messages.
 - `pong`
   - heartbeat response
 
-Reason for `file.snapshot` instead of diff-first protocol:
+Reason for `file.snapshot` instead of a diff-first protocol:
 
 - current backend tools already operate in file-sized edits
-- snapshot-per-write is simpler and less fragile than introducing CRDTs or textual patch-merging immediately
-- this still gives the user “live writing” if snapshots are emitted after each tool mutation
+- snapshot-per-write is simpler and less fragile than introducing textual patch merging immediately
+- this still gives the user a live-writing experience if snapshots are emitted after each successful mutation
 
-## 5. Backend Orchestrator
+## 5. Backend Runtime Shape
 
 Replace the current `POST + SSE` orchestration path with a WebSocket-oriented session manager.
 
@@ -326,22 +322,20 @@ Recommended backend units:
 - `agent_realtime.py`
   - WebSocket router and session protocol
 - `agent_session_manager.py`
-  - create/reuse/stop sessions
-- `leader_orchestrator.py`
-  - top-level user-facing orchestration logic
+  - create, reuse, stop, and clean up sessions
 - `engineer_runtime.py`
   - workspace-scoped code-writing execution
 - `workspace_event_emitter.py`
-  - emits file/terminal/progress events
+  - emits progress, terminal, file, and preview events
 
 Behavior:
 
-- leader consumes the user message
-- leader streams early acknowledgement and high-level plan
-- leader starts engineer work
-- engineer writes files and emits structured events
-- leader continues to stream progress summaries while engineer runs
-- when engineer finishes, leader summarizes outcome and next suggested action
+- engineer receives the user message
+- engineer streams an immediate acknowledgement
+- engineer runs tools internally
+- raw tool calls and tool results are mapped into terminal/progress/file events instead of normal chat content
+- engineer emits file snapshots while work is happening
+- engineer sends a final concise completion or failure message at the end of the run
 
 ## 6. Workspace Streaming
 
@@ -349,30 +343,29 @@ The editor should update while the engineer works, not only after a final sync.
 
 Recommended behavior:
 
-- instrument file-writing tools to emit `file.snapshot` after each successful write/replace operation
-- instrument file creation/deletion to emit `file.changed`
+- instrument file-writing tools to emit `file.snapshot` after each successful write or replace operation
+- instrument file creation and deletion to emit `file.changed`
 - frontend updates the in-memory workspace immediately
 - persistence to `project_files` remains on the backend, but UI responsiveness should not wait for a later query reload
 
 First iteration rule:
 
-- agent owns the edited file during an active run
+- the agent owns the edited file during an active run
 - if the user edits the same file mid-run, frontend should warn and prefer the latest explicit user change after the run completes
 
 This avoids needing collaborative merge logic in the first release.
 
 ## 7. Stop And Cancellation
 
-Stop must be a first-class orchestration control.
+Stop must be a first-class control command.
 
 Recommended flow:
 
 1. user sends `run.stop`
-2. backend marks session `stopping`
-3. leader receives cancellation
-4. engineer tool execution is interrupted or prevented from starting the next step
-5. backend emits `run.stopped`
-6. leader streams a final short stopped message if possible
+2. backend marks the session as `stopping`
+3. current engineer tool execution is interrupted or the next step is prevented from starting
+4. backend emits `run.stopped`
+5. engineer emits a final short stopped message if possible
 
 Rules:
 
@@ -380,19 +373,19 @@ Rules:
 - no new tool executions should begin after stop is accepted
 - preview should remain usable for whatever state is already on disk
 
-## 8. Terminal And Chat Separation
+## 8. Chat And Terminal Separation
 
 The left chat panel should not be a raw event dump.
 
 Recommended rendering rules:
 
-- `leader.delta` only updates the main assistant message
-- `progress` renders compact status rows under or beside the leader message
+- `assistant.delta` updates the main engineer message
+- `progress` renders compact status rows under or beside the active engineer message
 - `terminal.log` goes only to the terminal panel
-- `engineer.state` can drive subtle UI badges/spinners, not chat bubbles
-- raw tool arguments and tool results should be hidden behind debug affordances, not promoted into the main transcript
+- raw tool arguments and raw tool results should not be promoted into the main transcript
+- `error` should render as a concise user-facing message, with details still available in terminal/debug surfaces
 
-This preserves clarity while still keeping deep debug visibility available.
+This preserves clarity while keeping deep debugging information available.
 
 ## 9. Frontend Changes
 
@@ -402,15 +395,16 @@ Refactor into a realtime session client:
 
 - opens WebSocket via `realtime_ticket`
 - sends `user.message`
-- renders one active leader streaming bubble
+- renders one active streaming engineer bubble
 - renders stop button against session state, not only `AbortController`
+- stops appending `tool_call` and `tool_result` into the message list
 
 ### Workspace Context
 
 Expand to own:
 
 - session status
-- leader stream buffer
+- assistant stream buffer
 - progress list
 - terminal log buffer
 - current file snapshots
@@ -422,18 +416,18 @@ Add runtime behavior:
 
 - apply `file.snapshot` immediately to the open file buffer
 - update file tree on `file.changed`
-- optionally surface “agent is editing this file” state
+- optionally surface "agent is editing this file" state
 
 ### Project Workspace
 
 Keep:
 
 - preview iframe via same-origin preview gateway
-- degraded/ready preview status
+- degraded or ready preview status
 
 Add:
 
-- clearer separation between `chat`, `editor`, `preview`, and `terminal` event sources
+- clearer separation between chat events, terminal events, workspace file events, and preview events
 
 ## 10. Preview Integration
 
@@ -465,7 +459,7 @@ Recommended safeguards:
 Initial reconnect behavior:
 
 - on reconnect, restore current `session.state`
-- resend latest leader message buffer
+- resend latest assistant message buffer
 - resend latest open-file snapshot state
 - do not attempt mid-tool replay
 
@@ -474,29 +468,29 @@ Initial reconnect behavior:
 Backend tests:
 
 - WebSocket ticket issuance and validation
-- session start/stop lifecycle
-- leader stream events
-- engineer progress events
+- session start and stop lifecycle
+- assistant stream events
+- progress events
 - file snapshot emission during writes
 - stop cancelling further work
 - preview state events still propagate
 
 Frontend tests:
 
-- ChatPanel leader streaming
+- ChatPanel engineer streaming
 - stop button wiring to `run.stop`
 - terminal panel isolation from chat panel
 - WorkspaceContext file snapshot application
 - editor updates while session is active
-- reconnect/session resume behavior for current buffers
+- reconnect and resume behavior for current buffers
 
 Manual smoke tests:
 
-- user prompt -> leader starts streaming immediately
+- user prompt -> engineer starts streaming immediately
 - engineer writes files visible in editor while run is active
 - preview refreshes without waiting for final run completion
 - stop interrupts active work
-- App Viewer still supports normal app interactions and app websocket pass-through
+- App Viewer still supports normal app interactions and app WebSocket pass-through
 
 ## 13. Migration Strategy
 
@@ -504,29 +498,29 @@ Phase 1:
 
 - add realtime ticket endpoint
 - add orchestration WebSocket session
-- keep current single-agent backend logic behind the new transport
-- left chat renders leader-only stream
-
-Phase 2:
-
-- split leader-visible stream from engineer/internal events
-- add `file.snapshot`, `progress`, `terminal.log`
+- keep a single visible assistant role: `engineer`
+- stop rendering raw tool events in chat
+- add `progress`, `terminal.log`, `file.snapshot`, and `file.changed`
 - update editor live while engineer writes
 - add first-class stop handling
 
+Phase 2:
+
+- add reconnect and resume
+- refine progress UI and terminal surfaces
+- add better conflict indicators when user edits files during an active run
+
 Phase 3:
 
-- formalize leader -> engineer orchestration
-- add reconnect/resume
-- refine terminal/debug surfaces and progress UI
+- introduce an optional `leader -> engineer` orchestration layer on top of the same transport and workspace event model
 
-This sequence keeps the system working at every step while moving toward the full leader-engineer experience.
+This sequence ships the immediate UX fix first while preserving the long-term architecture.
 
 ## Risks And Tradeoffs
 
 - introducing a realtime session layer adds server-side state and lifecycle complexity
 - user edits during active engineer writes need explicit conflict policy
-- hiding engineer details from chat can make debugging harder unless terminal/debug surfaces stay strong
+- hiding tool details from chat can make debugging harder unless terminal/debug surfaces stay strong
 - the system will intentionally keep multiple protocols: REST, orchestration WS, preview HTTP/WS proxy
 
 These tradeoffs are acceptable because they map cleanly to the real product model instead of forcing one protocol to serve two different planes.
@@ -535,13 +529,14 @@ These tradeoffs are acceptable because they map cleanly to the real product mode
 
 Implement Atoms as a **dual-plane realtime system**:
 
-- **control plane**: WebSocket for leader/engineer orchestration, stop, progress, terminal summaries, and live workspace updates
+- **control plane**: WebSocket for engineer chat streaming, progress, stop, terminal summaries, and live workspace updates
 - **app plane**: existing same-origin preview gateway for the generated app, including WebSocket pass-through when the app itself needs it
 
-This is the smallest design that honestly satisfies the product requirement:
+This is the smallest design that satisfies the current requirement:
 
-- leader talks to the customer
-- engineer works in the workspace
+- engineer still talks to the customer
+- engineer stops dumping raw commands and code into chat
 - editor updates live
 - user can stop anytime
 - App Viewer remains a real interactive SaaS app surface
+- a future leader can be added later without redoing the transport model
