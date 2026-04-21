@@ -38,11 +38,12 @@ async def test_agent_task_store_creates_and_lists_project_tasks(db_session):
     listed = await store.list_tasks(project_id=42, request_key="req-1")
 
     assert task.subject == "Create homepage"
+    assert task.blocked_by == []
     assert len(listed) == 1
 
 
 @pytest.mark.asyncio
-async def test_agent_task_store_serializes_blocked_by_as_json_text(db_session):
+async def test_agent_task_store_returns_typed_blocked_by_lists_on_create(db_session):
     store = AgentTaskStore(db_session)
     created = await store.create_task(
         project_id=42,
@@ -52,7 +53,7 @@ async def test_agent_task_store_serializes_blocked_by_as_json_text(db_session):
         blocked_by=["design", "approval"],
     )
 
-    assert created.blocked_by == '["design", "approval"]'
+    assert created.blocked_by == ["design", "approval"]
 
     result = await db_session.execute(select(AgentTasks).where(AgentTasks.id == created.id))
     stored = result.scalar_one()
@@ -74,3 +75,22 @@ async def test_agent_task_store_list_tasks_returns_parsed_blocked_by_lists(db_se
 
     assert listed[0].blocked_by == ["design", "approval"]
     assert isinstance(listed[0].blocked_by, list)
+
+
+@pytest.mark.asyncio
+async def test_agent_task_store_list_tasks_handles_malformed_blocked_by_json(db_session):
+    db_session.add(
+        AgentTasks(
+            project_id=42,
+            request_key="req-4",
+            subject="Create homepage",
+            description="Implement landing page shell",
+            blocked_by="not-json",
+        )
+    )
+    await db_session.commit()
+
+    store = AgentTaskStore(db_session)
+    listed = await store.list_tasks(project_id=42, request_key="req-4")
+
+    assert listed[0].blocked_by == []

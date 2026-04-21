@@ -38,7 +38,7 @@ class AgentTaskStore:
         blocked_by: Optional[list[str]] = None,
         source_plan_path: str = "",
         owner: str = "engineer",
-    ) -> AgentTasks:
+    ) -> AgentTaskRecord:
         task = AgentTasks(
             project_id=project_id,
             request_key=request_key,
@@ -52,7 +52,7 @@ class AgentTaskStore:
         self.db.add(task)
         await self.db.commit()
         await self.db.refresh(task)
-        return task
+        return self._to_record(task)
 
     async def list_tasks(self, project_id: int, request_key: Optional[str] = None) -> list[AgentTaskRecord]:
         query = select(AgentTasks).where(AgentTasks.project_id == project_id)
@@ -77,7 +77,11 @@ class AgentTaskStore:
             return blocked_by
         if not blocked_by:
             return []
-        return json.loads(blocked_by)
+        try:
+            parsed = json.loads(blocked_by)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
 
     @classmethod
     def _to_record(cls, task: AgentTasks) -> AgentTaskRecord:
