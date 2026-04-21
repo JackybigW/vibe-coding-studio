@@ -10,6 +10,7 @@ class AgentRealtimeTicket:
     ticket: str
     user_id: str
     project_id: int
+    model: Optional[str]
     expires_at: datetime
 
     def is_expired(self, now: Optional[datetime] = None) -> bool:
@@ -23,7 +24,13 @@ class AgentRealtimeService:
         self._tickets: dict[str, AgentRealtimeTicket] = {}
         self._lock = asyncio.Lock()
 
-    async def issue_ticket(self, *, user_id: str, project_id: int) -> AgentRealtimeTicket:
+    async def issue_ticket(
+        self,
+        *,
+        user_id: str,
+        project_id: int,
+        model: Optional[str] = None,
+    ) -> AgentRealtimeTicket:
         async with self._lock:
             self._purge_expired_locked()
             ticket = secrets.token_urlsafe(32)
@@ -31,6 +38,7 @@ class AgentRealtimeService:
                 ticket=ticket,
                 user_id=str(user_id),
                 project_id=int(project_id),
+                model=model,
                 expires_at=datetime.now(timezone.utc) + self._ttl,
             )
             self._tickets[ticket] = record

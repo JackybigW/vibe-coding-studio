@@ -19,10 +19,15 @@ async def issue_session_ticket(
     request: AgentSessionTicketRequest,
     current_user: UserResponse = Depends(get_current_user),
 ):
-    ticket = await get_agent_realtime_service().issue_ticket(user_id=current_user.id, project_id=request.project_id)
+    ticket = await get_agent_realtime_service().issue_ticket(
+        user_id=current_user.id,
+        project_id=request.project_id,
+        model=request.model,
+    )
     return AgentSessionTicketResponse(
         ticket=ticket.ticket,
         project_id=ticket.project_id,
+        assistant_role="engineer",
         expires_at=ticket.expires_at,
     )
 

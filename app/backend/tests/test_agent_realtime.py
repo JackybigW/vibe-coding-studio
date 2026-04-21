@@ -28,11 +28,12 @@ def _make_client(monkeypatch):
 def test_issue_session_ticket_and_reject_invalid_websocket(monkeypatch):
     client = _make_client(monkeypatch)
 
-    response = client.post("/api/v1/agent/session-ticket", json={"project_id": 42})
+    response = client.post("/api/v1/agent/session-ticket", json={"project_id": 42, "model": "gpt-4.1"})
     assert response.status_code == 200
 
     payload = response.json()
     assert payload["project_id"] == 42
+    assert payload["assistant_role"] == "engineer"
     ticket = payload["ticket"]
     assert isinstance(ticket, str)
     assert ticket
