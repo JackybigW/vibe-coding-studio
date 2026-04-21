@@ -96,19 +96,24 @@ class SandboxRuntimeService:
             raise RuntimeError(message)
         return container_name
 
-    async def exec(self, container_name: str, command: str) -> tuple[int, str, str]:
-        return await self._invoke(
-            "docker",
-            "exec",
-            "-i",
-            container_name,
-            "/bin/bash",
-            "-lc",
-            command,
-        )
+    async def exec(
+        self,
+        container_name: str,
+        command: str,
+        env: Optional[dict[str, str]] = None,
+    ) -> tuple[int, str, str]:
+        docker_command = ["docker", "exec", "-i"]
+        for key, value in (env or {}).items():
+            docker_command.extend(["-e", f"{key}={value}"])
+        docker_command.extend([container_name, "/bin/bash", "-lc", command])
+        return await self._invoke(*docker_command)
 
-    async def start_preview_services(self, container_name: str) -> tuple[int, str, str]:
-        return await self.exec(container_name, "/usr/local/bin/start-preview")
+    async def start_preview_services(
+        self,
+        container_name: str,
+        env: Optional[dict[str, str]] = None,
+    ) -> tuple[int, str, str]:
+        return await self.exec(container_name, "/usr/local/bin/start-preview", env=env)
 
     async def wait_for_service(
         self,

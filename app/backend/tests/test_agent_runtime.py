@@ -142,6 +142,7 @@ class _FakeSandboxService:
         self.wait_success = wait_success
         self.dev_calls: list[str] = []
         self.wait_calls: list[tuple[str, int]] = []
+        self.preview_envs: list[dict[str, str] | None] = []
 
     async def ensure_runtime(self, user_id, project_id, host_root):
         return f"atoms-{user_id}-{project_id}"
@@ -152,8 +153,9 @@ class _FakeSandboxService:
     async def get_runtime_ports(self, container_name):
         return {"frontend_port": 55555, "backend_port": 55556, "preview_port": 55555}
 
-    async def start_preview_services(self, container_name):
+    async def start_preview_services(self, container_name, env=None):
         self.dev_calls.append(container_name)
+        self.preview_envs.append(env)
         if self.dev_success:
             return 0, "", ""
         return 2, "", "start-preview: ATOMS_PROJECT_ID env var is required"
@@ -509,3 +511,52 @@ def test_agent_run_emits_preview_bundle(monkeypatch):
     assert payload["preview_backend_url"] == "/preview/preview-session-123/backend/"
     assert payload["frontend_status"] == "running"
     assert payload["backend_status"] == "running"
+
+
+def test_agent_run_marks_backend_not_configured_without_preview_manifest(monkeypatch):
+    _FIXED_SESSION_KEY = "preview-session-123"
+
+    class _FakeSession:
+        preview_session_key = _FIXED_SESSION_KEY
+        preview_expires_at = None
+        frontend_status = "running"
+        backend_status = "not_configured"
+
+    async def fake_create(self, data):
+        assert data["backend_status"] == "not_configured"
+        return _FakeSession()
+
+    async def fake_get_by_project(self, user_id, project_id):
+        return None
+
+    monkeypatch.setattr("routers.agent_runtime.WorkspaceRuntimeSessionsService.create", fake_create)
+    monkeypatch.setattr("routers.agent_runtime.WorkspaceRuntimeSessionsService.get_by_project", fake_get_by_project)
+    monkeypatch.setattr(
+        "routers.agent_runtime.new_preview_session_fields",
+        lambda: {
+            "preview_session_key": _FIXED_SESSION_KEY,
+            "preview_expires_at": None,
+            "frontend_status": "starting",
+            "backend_status": "stopped",
+        },
+    )
+    monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", PromptCapturingAgent)
+    monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
+    monkeypatch.setattr("routers.agent_runtime._get_workspace_service", lambda: _FakeWorkspaceService())
+    fake_sandbox = _FakeSandboxService()
+    monkeypatch.setattr("routers.agent_runtime._get_sandbox_service", lambda: fake_sandbox)
+
+    response = _post_agent_run(monkeypatch)
+    body = response.text
+    preview_line = next(
+        line for line in body.splitlines()
+        if line.startswith("data: ") and '"type": "preview_ready"' in line
+    )
+    payload = json.loads(preview_line.removeprefix("data: "))
+
+    assert response.status_code == 200
+    assert payload["backend_status"] == "not_configured"
+    assert fake_sandbox.preview_envs[0] is not None
+    assert fake_sandbox.preview_envs[0]["ATOMS_PREVIEW_FRONTEND_BASE"] == "/preview/preview-session-123/frontend/"
+    assert fake_sandbox.preview_envs[0]["ATOMS_PREVIEW_BACKEND_BASE"] == "/preview/preview-session-123/backend/"
+    assert fake_sandbox.preview_envs[0]["VITE_ATOMS_PREVIEW_BACKEND_BASE"] == "/preview/preview-session-123/backend/"

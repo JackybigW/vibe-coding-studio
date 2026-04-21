@@ -258,8 +258,33 @@ async def run_agent(
                 logger.warning("[agent:%s] workspace sync failed: %s", trace_id, sync_exc)
 
             try:
+                sessions_service = WorkspaceRuntimeSessionsService(db)
+                existing_session = await sessions_service.get_by_project(
+                    user_id=user_id,
+                    project_id=project_id,
+                )
+                if existing_session and existing_session.preview_session_key:
+                    session_key_fields: dict[str, object] = {
+                        "preview_session_key": existing_session.preview_session_key,
+                    }
+                    if existing_session.preview_expires_at is not None:
+                        session_key_fields["preview_expires_at"] = existing_session.preview_expires_at
+                else:
+                    session_key_fields = new_preview_session_fields()
+
+                preview_urls = build_preview_urls(str(session_key_fields["preview_session_key"]))
+                preview_env = {
+                    "ATOMS_PREVIEW_FRONTEND_BASE": preview_urls["preview_frontend_url"],
+                    "ATOMS_PREVIEW_BACKEND_BASE": preview_urls["preview_backend_url"],
+                    "VITE_ATOMS_PREVIEW_FRONTEND_BASE": preview_urls["preview_frontend_url"],
+                    "VITE_ATOMS_PREVIEW_BACKEND_BASE": preview_urls["preview_backend_url"],
+                }
+
                 logger.info("[agent:%s] starting preview services", trace_id)
-                returncode, _, stderr = await sandbox_service.start_preview_services(container_name)
+                returncode, _, stderr = await sandbox_service.start_preview_services(
+                    container_name,
+                    env=preview_env,
+                )
                 if returncode != 0:
                     stderr_tail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
                     logger.warning(
@@ -315,7 +340,7 @@ async def run_agent(
                         )
                         logger.info("[agent:%s] frontend wait completed ready=%s", trace_id, frontend_ready)
 
-                        backend_ready = True
+                        backend_ready = False
                         if contract and contract.backend:
                             logger.info("[agent:%s] waiting for backend service path=%s", trace_id, backend_health_path)
                             backend_ready = await sandbox_service.wait_for_service(
@@ -331,20 +356,13 @@ async def run_agent(
                             await emit({"type": "preview_failed", "reason": "timeout"})
                         else:
                             # Build or update preview session
-                            sessions_service = WorkspaceRuntimeSessionsService(db)
-                            existing_session = await sessions_service.get_by_project(
-                                user_id=user_id,
-                                project_id=project_id,
-                            )
-                            if existing_session and existing_session.preview_session_key:
-                                session_key_fields: dict = {
-                                    "preview_session_key": existing_session.preview_session_key,
-                                }
-                            else:
-                                session_key_fields = new_preview_session_fields()
+                            backend_status = "not_configured"
+                            if contract and contract.backend:
+                                backend_status = "running" if backend_ready else "stopped"
 
                             session = await sessions_service.create(
                                 {
+                                    **session_key_fields,
                                     "user_id": user_id,
                                     "project_id": project_id,
                                     "container_name": container_name,
@@ -353,12 +371,9 @@ async def run_agent(
                                     "frontend_port": frontend_port,
                                     "backend_port": backend_port,
                                     "frontend_status": "running",
-                                    "backend_status": "running" if backend_ready else "stopped",
-                                    **session_key_fields,
+                                    "backend_status": backend_status,
                                 }
                             )
-
-                            preview_urls = build_preview_urls(session.preview_session_key)
                             logger.info(
                                 "[agent:%s] preview ready session_key=%s",
                                 trace_id,

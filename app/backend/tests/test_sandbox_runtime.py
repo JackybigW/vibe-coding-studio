@@ -996,6 +996,43 @@ async def test_start_preview_services_uses_start_preview_launcher():
 
 
 @pytest.mark.asyncio
+async def test_start_preview_services_injects_preview_env():
+    recorded = []
+
+    async def _fake_run(*command):
+        recorded.append(command)
+        return 0, "", ""
+
+    service = SandboxRuntimeService(project_root=Path("/tmp/project"), run_command=_fake_run)
+    await service.start_preview_services(
+        "atoms-user-1-42",
+        env={
+            "ATOMS_PREVIEW_FRONTEND_BASE": "/preview/sess/frontend/",
+            "ATOMS_PREVIEW_BACKEND_BASE": "/preview/sess/backend/",
+            "VITE_ATOMS_PREVIEW_BACKEND_BASE": "/preview/sess/backend/",
+        },
+    )
+
+    assert recorded == [
+        (
+            "docker",
+            "exec",
+            "-i",
+            "-e",
+            "ATOMS_PREVIEW_FRONTEND_BASE=/preview/sess/frontend/",
+            "-e",
+            "ATOMS_PREVIEW_BACKEND_BASE=/preview/sess/backend/",
+            "-e",
+            "VITE_ATOMS_PREVIEW_BACKEND_BASE=/preview/sess/backend/",
+            "atoms-user-1-42",
+            "/bin/bash",
+            "-lc",
+            "/usr/local/bin/start-preview",
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_wait_for_service_uses_healthcheck_path():
     recorded = []
 

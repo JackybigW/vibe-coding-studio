@@ -11,7 +11,7 @@ if [[ -z "${PROJECT_ID}" ]]; then
     exit 2
 fi
 
-BASE_PATH="/api/v1/workspace-runtime/projects/${PROJECT_ID}/preview/"
+BASE_PATH="${ATOMS_PREVIEW_FRONTEND_BASE:-/api/v1/workspace-runtime/projects/${PROJECT_ID}/preview/}"
 LOG_FILE="/tmp/atoms-dev.log"
 
 cd /workspace
