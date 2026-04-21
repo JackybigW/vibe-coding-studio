@@ -1,12 +1,16 @@
 import asyncio
+import hashlib
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.sql.dml import Update
 from starlette.websockets import WebSocketDisconnect
 
 from core.database import Base
+from models.agent_realtime_tickets import AgentRealtimeTickets
 from models.projects import Projects
 from routers.agent_realtime import router
 from services.agent_realtime import AgentRealtimeService
@@ -89,6 +93,15 @@ def test_issue_session_ticket_and_reject_invalid_websocket(monkeypatch, tmp_path
         assert isinstance(ticket, str)
         assert ticket
 
+        async def _load_ticket_row():
+            async with session_maker() as db:
+                result = await db.execute(select(AgentRealtimeTickets))
+                return result.scalar_one()
+
+        stored_ticket = asyncio.run(_load_ticket_row())
+        assert stored_ticket.ticket_hash == hashlib.sha256(ticket.encode("utf-8")).hexdigest()
+        assert stored_ticket.ticket_hash != ticket
+
         async def _consume():
             async with session_maker() as db:
                 return await service.consume_ticket(db, ticket)
@@ -159,6 +172,43 @@ def test_agent_realtime_service_rejects_invalid_reuse_and_expired_tickets(monkey
                 model="gpt-4.1",
             )
             assert await expired_service.consume_ticket(db, expired_ticket.ticket) is None
+
+            result = await db.execute(
+                select(AgentRealtimeTickets).where(
+                    AgentRealtimeTickets.ticket_hash == expired_service._hash_ticket(expired_ticket.ticket)
+                )
+            )
+            assert result.scalar_one_or_none() is None
+
+    asyncio.run(_run())
+    asyncio.run(engine.dispose())
+
+
+def test_agent_realtime_service_fallback_double_consume_only_succeeds_once(monkeypatch, tmp_path):
+    _, engine, session_maker, service = _build_environment(tmp_path, monkeypatch)
+
+    monkeypatch.setattr(service, "_supports_update_returning", lambda db: False, raising=False)
+
+    def _raise_if_returning(*args, **kwargs):
+        raise AssertionError("fallback path must not call RETURNING")
+
+    monkeypatch.setattr(Update, "returning", _raise_if_returning)
+
+    async def _run():
+        async with session_maker() as db:
+            ticket = await service.issue_ticket(db, user_id="user-1", project_id=42, model="gpt-4.1")
+
+        async def _consume_once():
+            async with session_maker() as db:
+                return await service.consume_ticket(db, ticket.ticket)
+
+        first, second = await asyncio.gather(_consume_once(), _consume_once())
+        successes = [result for result in (first, second) if result is not None]
+        failures = [result for result in (first, second) if result is None]
+
+        assert len(successes) == 1
+        assert len(failures) == 1
+        assert successes[0].model == "gpt-4.1"
 
     asyncio.run(_run())
     asyncio.run(engine.dispose())
