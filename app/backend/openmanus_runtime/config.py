@@ -4,16 +4,37 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 
 
 def get_project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def find_env_file() -> Path | None:
+    explicit_env = os.getenv("OPENMANUS_ENV_FILE")
+    if explicit_env:
+        candidate = Path(explicit_env).expanduser().resolve()
+        if candidate.is_file():
+            return candidate
+        return None
+
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        candidate = parent / ".env"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 PROJECT_ROOT = get_project_root()
 WORKSPACE_ROOT = Path(
     os.getenv("OPENMANUS_WORKSPACE_ROOT", str(PROJECT_ROOT / "workspace"))
 ).resolve()
+ENV_FILE = find_env_file()
+
+if ENV_FILE is not None:
+    load_dotenv(ENV_FILE, override=False)
 
 
 class LLMSettings(BaseModel):

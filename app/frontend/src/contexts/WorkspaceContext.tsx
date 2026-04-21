@@ -193,7 +193,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addTerminalLog = useCallback((log: string) => {
-    setTerminalLogs((prev) => [...prev, log]);
+    setTerminalLogs((prev) => {
+      if (log.startsWith("$ tool ") && prev[prev.length - 1] === log) {
+        return prev;
+      }
+      return [...prev, log];
+    });
   }, []);
 
   const applyFileSnapshot = useCallback(({ path, content }: { path: string; content: string }) => {
@@ -254,12 +259,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setSessionStatus(event.status);
       if (event.status === "running") {
         setProgressItems([]);
+      } else if (event.status === "completed" || event.status === "failed" || event.status === "stopped") {
+        setProgressItems([]);
       }
       return;
     }
 
     if (event.type === "progress") {
-      setProgressItems((items) => items.concat(event.label));
+      setProgressItems((items) => {
+        if (items[items.length - 1] === event.label) {
+          return items;
+        }
+        return items.concat(event.label);
+      });
       return;
     }
 
@@ -299,6 +311,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     if (event.type === "run.stopped") {
       setSessionStatus("stopped");
+      setProgressItems([]);
     }
   }, [addTerminalLog, applyFileSnapshot, reloadFiles]);
 

@@ -170,7 +170,12 @@ async def run_engineer_session(
             "After file edits, the backend will automatically run "
             "/usr/local/bin/start-preview to launch the preview services.\n"
             "The preview configuration is declared in .atoms/preview.json "
-            "(frontend command, optional backend command, healthcheck paths).\n"
+            "using this exact JSON shape:\n"
+            '{\n'
+            '  "frontend": {"command": "pnpm run dev -- --host 0.0.0.0 --port 3000", "healthcheck_path": "/"},\n'
+            '  "backend": {"command": "node server/index.js", "healthcheck_path": "/health"}\n'
+            '}\n'
+            'The "backend" object is optional when the app is frontend-only.\n'
             "If your app has a backend API, set the VITE_ATOMS_PREVIEW_BACKEND_BASE "
             "environment variable in the frontend so it can reach the backend.\n"
             "Do not start the preview services yourself; focus on writing code and "

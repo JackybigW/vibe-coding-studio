@@ -27,3 +27,27 @@ def test_load_preview_contract_reads_frontend_and_backend(tmp_path):
     assert contract.frontend.command.startswith("pnpm run dev")
     assert contract.backend is not None
     assert contract.backend.healthcheck_path == "/health"
+
+
+def test_load_preview_contract_supports_legacy_flat_schema(tmp_path):
+    atoms_dir = tmp_path / ".atoms"
+    atoms_dir.mkdir()
+    (atoms_dir / "preview.json").write_text(
+        json.dumps(
+            {
+                "frontend": "npm run dev",
+                "backend": "node server/index.js",
+                "healthcheck": "/api/health",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    contract = load_preview_contract(tmp_path)
+
+    assert contract is not None
+    assert contract.frontend.command == "npm run dev"
+    assert contract.frontend.healthcheck_path == "/"
+    assert contract.backend is not None
+    assert contract.backend.command == "node server/index.js"
+    assert contract.backend.healthcheck_path == "/api/health"

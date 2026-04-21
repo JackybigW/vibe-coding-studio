@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Idempotent dev-server launcher for atoms sandboxes.
-# Expects: bind-mounted project at /workspace, ATOMS_PROJECT_ID env var.
+# Expects: bind-mounted project at /workspace (or ATOMS_WORKSPACE_ROOT), ATOMS_PROJECT_ID env var.
 # Produces: detached `pnpm run dev` listening on 0.0.0.0:3000 with the correct
 # Vite --base so assets resolve through the backend preview proxy.
 set -euo pipefail
@@ -11,13 +11,14 @@ if [[ -z "${PROJECT_ID}" ]]; then
     exit 2
 fi
 
+WORKSPACE_ROOT="${ATOMS_WORKSPACE_ROOT:-/workspace}"
 BASE_PATH="${ATOMS_PREVIEW_FRONTEND_BASE:-/api/v1/workspace-runtime/projects/${PROJECT_ID}/preview/}"
 LOG_FILE="/tmp/atoms-dev.log"
 
-cd /workspace
+cd "${WORKSPACE_ROOT}"
 
 if [[ ! -f "package.json" ]]; then
-    echo "start-dev: /workspace/package.json not found; nothing to start" >&2
+    echo "start-dev: ${WORKSPACE_ROOT}/package.json not found; nothing to start" >&2
     exit 3
 fi
 
@@ -27,7 +28,13 @@ if [[ ! -d "node_modules" ]] || [[ "package.json" -nt "node_modules" ]] || [[ -f
 fi
 
 # Kill any previous listener on :3000 inside this container.
-mapfile -t PORT_3000_PIDS < <(python3 - 3000 <<'PY'
+PORT_3000_PIDS=()
+if [[ -d "/proc" ]]; then
+    while IFS= read -r pid; do
+        if [[ -n "${pid}" ]]; then
+            PORT_3000_PIDS+=("${pid}")
+        fi
+    done < <(python3 - 3000 <<'PY'
 import os
 import sys
 
@@ -66,14 +73,15 @@ for pid in sorted(filter(str.isdigit, os.listdir("/proc")), key=int):
     except OSError:
         continue
 PY
-)
+    )
+fi
 if [[ ${#PORT_3000_PIDS[@]} -gt 0 ]]; then
     kill "${PORT_3000_PIDS[@]}" || true
     sleep 1
 fi
 
 # Detach with nohup so the dev server survives the `docker exec` that started it.
-nohup pnpm run dev -- \
+nohup pnpm run dev \
     --host 0.0.0.0 \
     --port 3000 \
     --base "${BASE_PATH}" \

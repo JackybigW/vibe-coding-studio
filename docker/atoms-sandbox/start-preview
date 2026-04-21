@@ -78,13 +78,27 @@ import shlex
 from pathlib import Path
 
 payload = json.loads(Path("/workspace/.atoms/preview.json").read_text(encoding="utf-8"))
-frontend = payload["frontend"]
-backend = payload.get("backend")
+
+def service_config(value, default_healthcheck_path):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return {"command": value, "healthcheck_path": default_healthcheck_path}
+    if isinstance(value, dict):
+        return {
+            "command": value["command"],
+            "healthcheck_path": value.get("healthcheck_path", default_healthcheck_path),
+        }
+    raise TypeError(f"Unsupported preview service config: {type(value)!r}")
+
+frontend = service_config(payload["frontend"], "/")
+backend = service_config(payload.get("backend"), payload.get("healthcheck", "/health"))
+
 print(f'FRONTEND_COMMAND={shlex.quote(frontend["command"])}')
-print(f'FRONTEND_HEALTHCHECK_PATH={shlex.quote(frontend.get("healthcheck_path", "/"))}')
+print(f'FRONTEND_HEALTHCHECK_PATH={shlex.quote(frontend["healthcheck_path"])}')
 if backend:
     print(f'BACKEND_COMMAND={shlex.quote(backend["command"])}')
-    print(f'BACKEND_HEALTHCHECK_PATH={shlex.quote(backend.get("healthcheck_path", "/health"))}')
+    print(f'BACKEND_HEALTHCHECK_PATH={shlex.quote(backend["healthcheck_path"])}')
 PY
 )"
 

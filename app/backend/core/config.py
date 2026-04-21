@@ -1,10 +1,24 @@
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+
+def _find_env_file() -> str | None:
+    """Find the nearest ancestor .env so uvicorn imports work in git worktrees."""
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        candidate = parent / ".env"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+ENV_FILE = _find_env_file()
 
 
 class Settings(BaseSettings):
@@ -22,6 +36,20 @@ class Settings(BaseSettings):
     lambda_function_name: str = "fastapi-backend"
     aws_region: str = "us-east-1"
 
+    # URLs
+    frontend_url: str = "http://localhost:3000"
+
+    # JWT
+    jwt_secret_key: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440
+
+    # OIDC
+    oidc_issuer_url: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_scope: str = "openid email profile"
+
     @property
     def backend_url(self) -> str:
         """Generate backend URL from host and port."""
@@ -35,9 +63,12 @@ class Settings(BaseSettings):
             display_host = "127.0.0.1" if self.host == "0.0.0.0" else self.host
             return os.environ.get("PYTHON_BACKEND_URL", f"http://{display_host}:{self.port}")
 
-    class Config:
-        case_sensitive = False
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+        extra="ignore",
+        env_file=ENV_FILE,
+        env_file_encoding="utf-8",
+    )
 
     def __getattr__(self, name: str) -> Any:
         """

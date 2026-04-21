@@ -17,6 +17,8 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
     applyRealtimeEvent,
     sessionStatus,
     progressItems,
+    terminalLogs,
+    addTerminalLog,
   } = useWorkspace();
 
   useEffect(() => {
@@ -30,6 +32,7 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
       <div data-testid="file-content">{files.find((file) => file.file_path === "src/App.tsx")?.content ?? ""}</div>
       <div data-testid="session-status">{sessionStatus}</div>
       <div data-testid="progress-items">{progressItems.join(" | ")}</div>
+      <div data-testid="terminal-logs">{terminalLogs.join(" | ")}</div>
       <button onClick={reloadPreview} type="button">
         Reload preview
       </button>
@@ -65,6 +68,23 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
         type="button"
       >
         Apply progress
+      </button>
+      <button
+        onClick={() =>
+          applyRealtimeEvent({
+            type: "session.state",
+            status: "completed",
+          })
+        }
+        type="button"
+      >
+        Complete session
+      </button>
+      <button
+        onClick={() => addTerminalLog("$ tool str_replace_editor")}
+        type="button"
+      >
+        Add tool log
       </button>
       <button
         onClick={() =>
@@ -175,5 +195,46 @@ describe("WorkspaceContext", () => {
 
     expect(screen.getByTestId("session-status")).toHaveTextContent("running");
     expect(screen.getByTestId("progress-items")).toHaveTextContent("Editing src/App.tsx");
+  });
+
+  it("dedupes repeated progress items and clears them when the session completes", () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceConsumer projectId={1} />
+      </WorkspaceProvider>
+    );
+
+    act(() => {
+      screen.getByRole("button", { name: "Apply session state" }).click();
+      screen.getByRole("button", { name: "Apply progress" }).click();
+      screen.getByRole("button", { name: "Apply progress" }).click();
+    });
+
+    expect(screen.getByTestId("progress-items")).toHaveTextContent("Editing src/App.tsx");
+    expect(screen.getByTestId("progress-items")).not.toHaveTextContent("Editing src/App.tsx | Editing src/App.tsx");
+
+    act(() => {
+      screen.getByRole("button", { name: "Complete session" }).click();
+    });
+
+    expect(screen.getByTestId("session-status")).toHaveTextContent("completed");
+    expect(screen.getByTestId("progress-items")).toHaveTextContent("");
+  });
+
+  it("dedupes repeated tool terminal logs", () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceConsumer projectId={1} />
+      </WorkspaceProvider>
+    );
+
+    act(() => {
+      screen.getByRole("button", { name: "Add tool log" }).click();
+      screen.getByRole("button", { name: "Add tool log" }).click();
+    });
+
+    const terminalLogs = screen.getByTestId("terminal-logs").textContent ?? "";
+    const occurrences = terminalLogs.split("$ tool str_replace_editor").length - 1;
+    expect(occurrences).toBe(1);
   });
 });
