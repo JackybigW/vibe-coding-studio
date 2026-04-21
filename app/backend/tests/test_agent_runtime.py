@@ -96,6 +96,24 @@ def test_classify_user_request_treats_please_add_auth_question_as_implementation
     assert result.requires_backend_readme is True
 
 
+def test_classify_user_request_treats_can_i_add_auth_as_conversation():
+    result = classify_user_request("can I add auth?")
+    assert result.mode == "conversation"
+    assert result.requires_backend_readme is True
+
+
+def test_classify_user_request_treats_should_we_update_api_client_as_conversation():
+    result = classify_user_request("should we update the API client?")
+    assert result.mode == "conversation"
+    assert result.requires_backend_readme is True
+
+
+def test_classify_user_request_treats_whats_the_best_way_as_conversation():
+    result = classify_user_request("what's the best way to add auth?")
+    assert result.mode == "conversation"
+    assert result.requires_backend_readme is True
+
+
 def test_build_bootstrap_context_defaults_to_classification():
     result = build_bootstrap_context("帮我新增一个 billing 页面和后端接口")
     assert result.mode == "implementation"

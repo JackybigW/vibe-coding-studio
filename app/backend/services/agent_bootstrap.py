@@ -29,7 +29,7 @@ BACKEND_KEYWORDS = (
 _IMPLEMENTATION_PATTERN = re.compile(r"\b(?:build|implement|create|add|update|modify|fix)\b", re.IGNORECASE)
 _BACKEND_PATTERN = re.compile(r"\b(?:api|backend|database|auth|storage|payment)\b", re.IGNORECASE)
 _ADVISORY_QUESTION_PATTERN = re.compile(
-    r"^(?:how\s+do\s+i|how\s+should\s+i|how\s+can\s+i|what\s+is\s+the\s+best\s+way\s+to|what\s+should\s+i|why\s+should\s+i)\b",
+    r"^(?:how\s+do\s+i|how\s+should\s+i|how\s+can\s+i|what(?:'s|\s+is)\s+the\s+best\s+way\s+to|what\s+is\s+the\s+best\s+way\s+to|what\s+should\s+i|why\s+should\s+i|can\s+i|should\s+we)\b",
     re.IGNORECASE,
 )
 _POLITE_EXECUTION_PATTERN = re.compile(r"^(?:can\s+you|could\s+you|please)\b", re.IGNORECASE)
