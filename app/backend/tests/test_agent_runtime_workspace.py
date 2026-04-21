@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from openmanus_runtime.exceptions import ToolError
 from openmanus_runtime.tool.file_operators import ProjectFileOperator
 from routers.agent_runtime import router
 
@@ -21,11 +22,11 @@ async def test_project_file_operator_maps_container_paths(tmp_path):
         container_root=Path("/workspace"),
     )
     operator.host_root.mkdir(parents=True, exist_ok=True)
-    (operator.host_root / "src").mkdir()
-    (operator.host_root / "src" / "App.tsx").write_text(
+    (operator.host_root / "app" / "frontend" / "src").mkdir(parents=True)
+    (operator.host_root / "app" / "frontend" / "src" / "App.tsx").write_text(
         "export default function App() {}", encoding="utf-8"
     )
-    content = await operator.read_file("/workspace/src/App.tsx")
+    content = await operator.read_file("/workspace/app/frontend/src/App.tsx")
     assert content == "export default function App() {}"
 
 
@@ -36,8 +37,25 @@ async def test_project_file_operator_write_maps_container_paths(tmp_path):
         container_root=Path("/workspace"),
     )
     operator.host_root.mkdir(parents=True, exist_ok=True)
-    await operator.write_file("/workspace/hello.txt", "hello world")
-    assert (operator.host_root / "hello.txt").read_text(encoding="utf-8") == "hello world"
+    await operator.write_file("/workspace/docs/hello.txt", "hello world")
+    assert (operator.host_root / "docs" / "hello.txt").read_text(encoding="utf-8") == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_project_file_operator_rejects_protected_backend_paths(tmp_path):
+    operator = ProjectFileOperator(host_root=tmp_path, container_root=Path("/workspace"))
+    with pytest.raises(ToolError):
+        await operator.write_file("/workspace/app/backend/core/config.py", "bad")
+
+
+@pytest.mark.asyncio
+async def test_project_file_operator_allows_docs_and_frontend_paths(tmp_path):
+    operator = ProjectFileOperator(host_root=tmp_path, container_root=Path("/workspace"))
+    await operator.write_file("/workspace/docs/todo.md", "# Todo")
+    await operator.write_file(
+        "/workspace/app/frontend/src/App.tsx",
+        "export default function App() { return null }",
+    )
 
 
 @pytest.mark.asyncio
@@ -50,12 +68,14 @@ async def test_project_file_operator_emits_snapshot_on_write(tmp_path):
     )
     operator.host_root.mkdir(parents=True, exist_ok=True)
 
-    await operator.write_file("/workspace/src/App.tsx", "export default function App() {}")
+    await operator.write_file(
+        "/workspace/app/frontend/src/App.tsx", "export default function App() {}"
+    )
 
     assert events == [
         {
             "type": "file.snapshot",
-            "path": "src/App.tsx",
+            "path": "app/frontend/src/App.tsx",
             "content": "export default function App() {}",
         }
     ]
@@ -63,8 +83,6 @@ async def test_project_file_operator_emits_snapshot_on_write(tmp_path):
 
 @pytest.mark.asyncio
 async def test_project_file_operator_rejects_path_outside_workspace(tmp_path):
-    from openmanus_runtime.exceptions import ToolError
-
     operator = ProjectFileOperator(
         host_root=tmp_path / "user-1" / "1",
         container_root=Path("/workspace"),
@@ -81,9 +99,10 @@ async def test_project_file_operator_exists(tmp_path):
         container_root=Path("/workspace"),
     )
     operator.host_root.mkdir(parents=True, exist_ok=True)
-    (operator.host_root / "exists.txt").write_text("hi", encoding="utf-8")
-    assert await operator.exists("/workspace/exists.txt") is True
-    assert await operator.exists("/workspace/missing.txt") is False
+    (operator.host_root / "docs" / "exists.txt").parent.mkdir(parents=True, exist_ok=True)
+    (operator.host_root / "docs" / "exists.txt").write_text("hi", encoding="utf-8")
+    assert await operator.exists("/workspace/docs/exists.txt") is True
+    assert await operator.exists("/workspace/docs/missing.txt") is False
 
 
 @pytest.mark.asyncio
@@ -93,10 +112,11 @@ async def test_project_file_operator_is_directory(tmp_path):
         container_root=Path("/workspace"),
     )
     operator.host_root.mkdir(parents=True, exist_ok=True)
-    (operator.host_root / "subdir").mkdir()
-    assert await operator.is_directory("/workspace/subdir") is True
-    (operator.host_root / "afile.txt").write_text("", encoding="utf-8")
-    assert await operator.is_directory("/workspace/afile.txt") is False
+    (operator.host_root / "app" / "frontend" / "src").mkdir(parents=True)
+    assert await operator.is_directory("/workspace/app/frontend/src") is True
+    (operator.host_root / "docs" / "afile.txt").parent.mkdir(parents=True, exist_ok=True)
+    (operator.host_root / "docs" / "afile.txt").write_text("", encoding="utf-8")
+    assert await operator.is_directory("/workspace/docs/afile.txt") is False
 
 
 @pytest.mark.asyncio
@@ -107,10 +127,12 @@ async def test_project_file_operator_run_command_maps_workspace_paths(tmp_path):
     )
     operator.host_root.mkdir(parents=True, exist_ok=True)
 
-    returncode, stdout, stderr = await operator.run_command("printf '%s' /workspace/src")
+    returncode, stdout, stderr = await operator.run_command(
+        "printf '%s' /workspace/app/frontend/src"
+    )
 
     assert returncode == 0
-    assert stdout == str(operator.host_root / "src")
+    assert stdout == str(operator.host_root / "app" / "frontend" / "src")
     assert stderr == ""
 
 

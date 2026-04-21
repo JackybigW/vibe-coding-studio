@@ -3,7 +3,7 @@
 import asyncio
 from inspect import isawaitable
 import shlex
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional, Protocol, Tuple, Union, runtime_checkable
 
 from openmanus_runtime.config import SandboxSettings
@@ -12,6 +12,54 @@ from openmanus_runtime.sandbox.client import SANDBOX_CLIENT
 
 
 PathLike = Union[str, Path]
+WORKSPACE_ROOT = PurePosixPath("/workspace")
+ALLOWED_WORKSPACE_WRITE_ROOTS = (
+    PurePosixPath("/workspace/app/frontend"),
+    PurePosixPath("/workspace/app/backend"),
+    PurePosixPath("/workspace/docs"),
+    PurePosixPath("/workspace/.atoms"),
+)
+PROTECTED_PATHS = (
+    PurePosixPath("/workspace/app/backend/core"),
+    PurePosixPath("/workspace/app/backend/models"),
+    PurePosixPath("/workspace/app/backend/main.py"),
+    PurePosixPath("/workspace/app/backend/lambda_handler.py"),
+)
+
+
+def _as_posix_path(path: PathLike) -> PurePosixPath:
+    return PurePosixPath(str(path))
+
+
+def _is_under(path: PurePosixPath, root: PurePosixPath) -> bool:
+    return path == root or root in path.parents
+
+
+def _is_protected_workspace_path(path: PathLike) -> bool:
+    candidate = _as_posix_path(path)
+    return any(_is_under(candidate, protected) for protected in PROTECTED_PATHS)
+
+
+def _is_allowed_workspace_write_path(path: PathLike) -> bool:
+    candidate = _as_posix_path(path)
+    return any(
+        _is_under(candidate, allowed_root) for allowed_root in ALLOWED_WORKSPACE_WRITE_ROOTS
+    )
+
+
+def validate_workspace_path(path: PathLike) -> None:
+    candidate = _as_posix_path(path)
+    if not candidate.is_absolute():
+        raise ToolError(f"The path {path} is not an absolute path")
+    if not _is_under(candidate, WORKSPACE_ROOT):
+        raise ToolError(f"Path must live under {WORKSPACE_ROOT}, got: {candidate}")
+    if _is_protected_workspace_path(candidate):
+        raise ToolError(f"Path {candidate} is protected and cannot be modified")
+    if not _is_allowed_workspace_write_path(candidate):
+        allowed = ", ".join(str(path) for path in ALLOWED_WORKSPACE_WRITE_ROOTS)
+        raise ToolError(
+            f"Writes are only allowed under: {allowed}. Got: {candidate}"
+        )
 
 
 @runtime_checkable
@@ -116,6 +164,7 @@ class ProjectFileOperator(LocalFileOperator):
             relative = raw.relative_to(self.container_root)
         except ValueError:
             raise ToolError(f"Path must live under {self.container_root}, got: {raw}")
+        validate_workspace_path(raw)
         host_path = (self.host_root / relative).resolve()
         resolved_root = self.host_root.resolve()
         if host_path != resolved_root and resolved_root not in host_path.parents:

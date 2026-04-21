@@ -50,12 +50,16 @@ def test_materialize_files_writes_nested_paths(tmp_path):
     service.materialize_files(
         paths.host_root,
         [
-            {"file_path": "src/App.tsx", "content": "export const App = () => null;"},
+            {"file_path": "docs/todo.md", "content": "# Todo"},
+            {"file_path": "app/frontend/src/App.tsx", "content": "export const App = () => null;"},
+            {"file_path": "app/backend/utils/App.tsx", "content": "export const App = () => null;"},
             {"file_path": "backend/main.py", "content": "print('ok')"},
         ],
     )
 
-    assert (paths.host_root / "src" / "App.tsx").read_text(encoding="utf-8") == "export const App = () => null;"
+    assert (paths.host_root / "docs" / "todo.md").read_text(encoding="utf-8") == "# Todo"
+    assert (paths.host_root / "app" / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8") == "export const App = () => null;"
+    assert (paths.host_root / "app" / "backend" / "utils" / "App.tsx").read_text(encoding="utf-8") == "export const App = () => null;"
     assert (paths.host_root / "backend" / "main.py").read_text(encoding="utf-8") == "print('ok')"
 
 

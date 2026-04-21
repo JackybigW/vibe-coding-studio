@@ -13,6 +13,7 @@ from openmanus_runtime.tool.file_operators import (
     LocalFileOperator,
     PathLike,
     SandboxFileOperator,
+    validate_workspace_path,
 )
 
 
@@ -180,6 +181,7 @@ class StrReplaceEditor(BaseTool):
         # Check if path is absolute
         if not path.is_absolute():
             raise ToolError(f"The path {path} is not an absolute path")
+        validate_workspace_path(path)
 
         # Only check if path exists for non-create commands
         if command != "create":
