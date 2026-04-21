@@ -36,6 +36,18 @@ def test_classify_user_request_ignores_email_in_general_requests():
     assert result.requires_backend_readme is False
 
 
+def test_classify_user_request_marks_frontend_landing_page_as_implementation_only():
+    result = classify_user_request("build a landing page")
+    assert result.mode == "implementation"
+    assert result.requires_backend_readme is False
+
+
+def test_classify_user_request_marks_frontend_widget_as_implementation_only():
+    result = classify_user_request("implement the frontend widget")
+    assert result.mode == "implementation"
+    assert result.requires_backend_readme is False
+
+
 def test_build_bootstrap_context_defaults_to_classification():
     result = build_bootstrap_context("帮我新增一个 billing 页面和后端接口")
     assert result.mode == "implementation"

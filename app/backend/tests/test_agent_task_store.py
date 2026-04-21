@@ -57,3 +57,20 @@ async def test_agent_task_store_serializes_blocked_by_as_json_text(db_session):
     result = await db_session.execute(select(AgentTasks).where(AgentTasks.id == created.id))
     stored = result.scalar_one()
     assert stored.blocked_by == '["design", "approval"]'
+
+
+@pytest.mark.asyncio
+async def test_agent_task_store_list_tasks_returns_parsed_blocked_by_lists(db_session):
+    store = AgentTaskStore(db_session)
+    await store.create_task(
+        project_id=42,
+        request_key="req-3",
+        subject="Create homepage",
+        description="Implement landing page shell",
+        blocked_by=["design", "approval"],
+    )
+
+    listed = await store.list_tasks(project_id=42, request_key="req-3")
+
+    assert listed[0].blocked_by == ["design", "approval"]
+    assert isinstance(listed[0].blocked_by, list)
