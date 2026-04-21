@@ -6,19 +6,14 @@ IMPLEMENTATION_KEYWORDS = (
     "build",
     "implement",
     "create",
+    "add",
+    "update",
+    "modify",
     "新增",
     "添加",
     "修改",
     "增加",
     "fix",
-)
-FRONTEND_KEYWORDS = (
-    "frontend",
-    "front-end",
-    "ui",
-    "ux",
-    "landing page",
-    "widget",
 )
 BACKEND_KEYWORDS = (
     "api",
@@ -31,12 +26,8 @@ BACKEND_KEYWORDS = (
     "接口",
 )
 
-_IMPLEMENTATION_PATTERN = re.compile(r"\b(?:build|implement|create|fix)\b", re.IGNORECASE)
+_IMPLEMENTATION_PATTERN = re.compile(r"\b(?:build|implement|create|add|update|modify|fix)\b", re.IGNORECASE)
 _BACKEND_PATTERN = re.compile(r"\b(?:api|backend|database|auth|storage|payment)\b", re.IGNORECASE)
-_FRONTEND_IMPLEMENTATION_PATTERN = re.compile(
-    r"\b(?:build|implement|create|fix)\b.*\b(?:frontend|front-end|ui|ux|landing page|widget)\b",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True)
@@ -52,12 +43,7 @@ def _contains_keyword(prompt: str, keywords: tuple[str, ...]) -> bool:
 
 def classify_user_request(prompt: str) -> BootstrapContext:
     lowered = prompt.lower()
-    implementation = (
-        bool(_IMPLEMENTATION_PATTERN.search(lowered))
-        or bool(_FRONTEND_IMPLEMENTATION_PATTERN.search(lowered))
-        or _contains_keyword(prompt, IMPLEMENTATION_KEYWORDS[3:])
-        or _contains_keyword(prompt, FRONTEND_KEYWORDS)
-    )
+    implementation = bool(_IMPLEMENTATION_PATTERN.search(lowered)) or _contains_keyword(prompt, IMPLEMENTATION_KEYWORDS[6:])
     backend = bool(_BACKEND_PATTERN.search(lowered)) or _contains_keyword(prompt, BACKEND_KEYWORDS)
     return BootstrapContext(
         mode="implementation" if implementation else "conversation",

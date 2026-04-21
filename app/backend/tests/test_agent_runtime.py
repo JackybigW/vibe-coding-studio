@@ -36,6 +36,18 @@ def test_classify_user_request_ignores_email_in_general_requests():
     assert result.requires_backend_readme is False
 
 
+def test_classify_user_request_ignores_reviewing_landing_page_copy():
+    result = classify_user_request("review the landing page copy")
+    assert result.mode == "conversation"
+    assert result.requires_backend_readme is False
+
+
+def test_classify_user_request_ignores_frontend_widget_behavior_questions():
+    result = classify_user_request("how should the frontend widget behave?")
+    assert result.mode == "conversation"
+    assert result.requires_backend_readme is False
+
+
 def test_classify_user_request_marks_frontend_landing_page_as_implementation_only():
     result = classify_user_request("build a landing page")
     assert result.mode == "implementation"
@@ -46,6 +58,12 @@ def test_classify_user_request_marks_frontend_widget_as_implementation_only():
     result = classify_user_request("implement the frontend widget")
     assert result.mode == "implementation"
     assert result.requires_backend_readme is False
+
+
+def test_classify_user_request_marks_add_auth_as_implementation_and_backend():
+    result = classify_user_request("please add auth")
+    assert result.mode == "implementation"
+    assert result.requires_backend_readme is True
 
 
 def test_build_bootstrap_context_defaults_to_classification():
