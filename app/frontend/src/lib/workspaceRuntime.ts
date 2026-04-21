@@ -13,14 +13,6 @@ export interface WorkspacePreviewBundle {
   backend_status?: string | null;
 }
 
-/** @deprecated Use WorkspacePreviewBundle */
-export interface WorkspaceRuntimeStatus {
-  project_id: number;
-  status: string;
-  preview_url: string;
-  frontend_port?: number | null;
-  backend_port?: number | null;
-}
 
 export function buildPreviewUrl(previewUrl: string): string {
   return previewUrl;

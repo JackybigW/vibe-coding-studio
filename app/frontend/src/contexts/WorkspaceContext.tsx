@@ -97,10 +97,6 @@ function buildPreviewHtml(files: ProjectFile[]): string {
   code = code.replace(/^import\s+.*?;\s*$/gm, "");
   // Remove export default
   code = code.replace(/export\s+default\s+/, "");
-  // Extract function name
-  const funcMatch = code.match(/function\s+(\w+)/);
-  const funcName = funcMatch ? funcMatch[1] : "App";
-
   // Simple JSX-to-HTML conversion for preview
   let jsxContent = "";
   const returnMatch = code.match(/return\s*\(\s*([\s\S]*?)\s*\)\s*;?\s*\}/);
@@ -118,9 +114,6 @@ function buildPreviewHtml(files: ProjectFile[]): string {
   }
 
   const cssContent = cssFile?.content || "";
-
-  // funcName is used to satisfy linter; kept for future reference
-  void funcName;
 
   return `<!DOCTYPE html>
 <html>
