@@ -28,8 +28,12 @@ HOP_BY_HOP = {
 def _validate_preview_session(session):
     if session is None or session.status not in {"running", "starting"}:
         raise HTTPException(status_code=404, detail="Preview runtime not found")
-    if session.preview_expires_at and session.preview_expires_at <= datetime.now(timezone.utc):
-        raise HTTPException(status_code=404, detail="Preview session expired")
+    if session.preview_expires_at:
+        expires_at = session.preview_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=404, detail="Preview session expired")
     return session
 
 
