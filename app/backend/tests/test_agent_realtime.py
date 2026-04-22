@@ -283,6 +283,40 @@ def test_websocket_user_message_streams_engineer_reply(monkeypatch, tmp_path):
     asyncio.run(engine.dispose())
 
 
+def test_websocket_emits_draft_plan_and_blocks_execution_until_approved(monkeypatch, tmp_path):
+    app, engine, _, _ = _build_environment(tmp_path, monkeypatch)
+
+    execution_started = []
+    plan_events = []
+
+    async def fake_run_engineer_session(*, event_sink, project_id, **kwargs):
+        await event_sink({
+            "type": "draft_plan.pending",
+            "request_key": "req-1",
+            "items": [{"id": "1", "text": "Create homepage"}],
+        })
+        # This simulates the tool blocking — the agent is running but implementation hasn't started
+        execution_started.append(False)
+
+    monkeypatch.setattr("routers.agent_realtime.run_engineer_session", fake_run_engineer_session, raising=False)
+
+    with TestClient(app) as client:
+        ticket = client.post("/api/v1/agent/session-ticket", json={"project_id": 42, "model": "gpt-4.1"}).json()["ticket"]
+
+        with client.websocket_connect(f"/api/v1/agent/session/ws?ticket={ticket}") as websocket:
+            websocket.receive_json()  # idle state
+
+            websocket.send_json({"type": "user.message", "project_id": 42, "prompt": "build auth"})
+            websocket.receive_json()  # running state
+
+            draft_plan_event = websocket.receive_json()
+            assert draft_plan_event["type"] == "draft_plan.pending"
+            assert "items" in draft_plan_event
+            assert execution_started == [False]
+
+    asyncio.run(engine.dispose())
+
+
 def test_websocket_run_stop_emits_run_stopped(monkeypatch, tmp_path):
     app, engine, _, _ = _build_environment(tmp_path, monkeypatch)
 

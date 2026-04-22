@@ -85,6 +85,10 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeAssistantMessage, setActiveAssistantMessage] = useState("");
   const [activeAssistantAgent, setActiveAssistantAgent] = useState("engineer");
+  const [pendingDraftPlan, setPendingDraftPlan] = useState<{
+    request_key: string;
+    items: Array<{ id: string; text: string }>;
+  } | null>(null);
   const activeAssistantMessageRef = useRef("");
   const activeAssistantAgentRef = useRef("engineer");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -160,6 +164,15 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const handleRealtimeEvent = useCallback(
     (event: AgentRealtimeEvent) => {
       applyRealtimeEvent(event);
+
+      if (event.type === "draft_plan.pending") {
+        setPendingDraftPlan({ request_key: event.request_key, items: event.items });
+        return;
+      }
+      if (event.type === "draft_plan.approved") {
+        setPendingDraftPlan(null);
+        return;
+      }
 
       if (event.type === "assistant.delta") {
         const nextAgent = event.agent || "engineer";
@@ -502,6 +515,38 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                   ))}
                 </div>
               ) : null}
+            </div>
+          </div>
+        )}
+        {pendingDraftPlan && (
+          <div className="flex gap-3">
+            <div className="flex-shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#7C3AED] to-[#A855F7] flex items-center justify-center">
+                <Bot className="w-4 h-4 text-white" />
+              </div>
+            </div>
+            <div className="max-w-[85%] bg-[#18181B] border border-[#7C3AED]/40 rounded-2xl rounded-tl-md px-4 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-[#A855F7]">
+                Draft Plan
+              </div>
+              <ul className="space-y-1 mb-3">
+                {pendingDraftPlan.items.map((item) => (
+                  <li key={item.id} className="text-sm text-[#E4E4E7] flex gap-2">
+                    <span className="text-[#71717A]">{item.id}.</span>
+                    <span>{item.text}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button
+                size="sm"
+                className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white h-7 px-3 text-xs"
+                onClick={() => {
+                  sessionRef.current?.approveDraftPlan({ requestKey: pendingDraftPlan.request_key });
+                  setPendingDraftPlan(null);
+                }}
+              >
+                Approve
+              </Button>
             </div>
           </div>
         )}

@@ -154,6 +154,17 @@ async def run_engineer_session(
         )
         logger.info("%s agent built name=%s", prefix, agent.name)
 
+        from openmanus_runtime.tool.draft_plan import DraftPlanTool
+        from services.agent_draft_plan import get_agent_draft_plan_service
+
+        draft_plan_tool = DraftPlanTool.create(
+            event_sink=event_sink,
+            service=get_agent_draft_plan_service(),
+            project_id=project_id,
+        )
+        if hasattr(agent, "available_tools") and agent.available_tools is not None:
+            agent.available_tools.add_tool(draft_plan_tool)
+
         await event_sink(
             {
                 "type": "session",

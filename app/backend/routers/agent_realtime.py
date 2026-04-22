@@ -16,6 +16,7 @@ from schemas.agent_realtime import (
 from schemas.auth import UserResponse
 from services.engineer_runtime import run_engineer_session
 from services.agent_realtime import get_agent_realtime_service
+from services.agent_draft_plan import get_agent_draft_plan_service
 from services.projects import ProjectsService
 
 
@@ -93,6 +94,8 @@ async def agent_session_websocket(websocket: WebSocket, db: AsyncSession = Depen
             "workspace_sync",
             "preview_ready",
             "preview_failed",
+            "draft_plan.pending",
+            "draft_plan.approved",
         }:
             await websocket.send_json(event)
 
@@ -142,6 +145,14 @@ async def agent_session_websocket(websocket: WebSocket, db: AsyncSession = Depen
                 if current_stop_event is not None and not current_stop_event.is_set():
                     current_stop_event.set()
                     await websocket.send_json({"type": "run.stopped"})
+                continue
+
+            if message_type == "user.approve_plan":
+                request_key = str(message.get("request_key") or "")
+                get_agent_draft_plan_service().approve(
+                    project_id=ticket.project_id,
+                    request_key=request_key,
+                )
                 continue
 
             if message_type != "user.message":

@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useEffect, type ReactNode } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChatPanel from "./ChatPanel";
 import { WorkspaceProvider, useWorkspace } from "@/contexts/WorkspaceContext";
@@ -10,10 +10,12 @@ const realtimeHarness: {
   onEvent: ((event: Record<string, unknown>) => void) | null;
   sendUserMessage: ReturnType<typeof vi.fn>;
   stopRun: ReturnType<typeof vi.fn>;
+  approveDraftPlan: ReturnType<typeof vi.fn>;
 } = {
   onEvent: null,
   sendUserMessage: vi.fn(),
   stopRun: vi.fn(),
+  approveDraftPlan: vi.fn(),
 };
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -48,6 +50,7 @@ vi.mock("@/lib/agentRealtime", () => ({
     return {
       sendUserMessage: realtimeHarness.sendUserMessage,
       stopRun: realtimeHarness.stopRun,
+      approveDraftPlan: realtimeHarness.approveDraftPlan,
       close: vi.fn(),
     };
   }),
@@ -64,11 +67,16 @@ function WorkspaceHarness({ children }: { children: ReactNode }) {
 }
 
 describe("ChatPanel", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn();
     realtimeHarness.onEvent = null;
     realtimeHarness.sendUserMessage.mockReset();
     realtimeHarness.stopRun.mockReset();
+    realtimeHarness.approveDraftPlan.mockReset();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -113,5 +121,66 @@ describe("ChatPanel", () => {
     expect(await screen.findByText("Updating auth flow")).toBeInTheDocument();
     expect(screen.getByText("Editing src/App.tsx")).toBeInTheDocument();
     expect(screen.queryByText("$ pnpm test")).not.toBeInTheDocument();
+  });
+
+  it("renders a draft plan card with an approve button when draft_plan.pending arrives", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    const buttons = screen.getAllByRole("button");
+    fireEvent.click(buttons[buttons.length - 1]);
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
+    });
+
+    act(() => {
+      realtimeHarness.onEvent?.({
+        type: "draft_plan.pending",
+        request_key: "req-1",
+        items: [
+          { id: "1", text: "Create homepage" },
+          { id: "2", text: "Add billing page" },
+        ],
+      });
+    });
+
+    expect(await screen.findByText("Create homepage")).toBeInTheDocument();
+    expect(screen.getByText("Add billing page")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
+  });
+
+  it("does not render a draft plan card for normal assistant messages", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    const buttons = screen.getAllByRole("button");
+    fireEvent.click(buttons[buttons.length - 1]);
+
+    await waitFor(() => expect(realtimeHarness.sendUserMessage).toHaveBeenCalled());
+
+    act(() => {
+      realtimeHarness.onEvent?.({ type: "assistant.delta", agent: "swe", content: "Working on it" });
+      realtimeHarness.onEvent?.({ type: "assistant.message_done", agent: "swe" });
+    });
+
+    await screen.findByText("Working on it");
+    expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
   });
 });

@@ -17,7 +17,9 @@ export type AgentRealtimeEvent =
   | { type: "preview_failed"; reason?: string; error?: string }
   | { type: "workspace_sync"; changed_files?: string[] }
   | { type: "run.stopped" }
-  | { type: "error"; error?: string; message?: string };
+  | { type: "error"; error?: string; message?: string }
+  | { type: "draft_plan.pending"; request_key: string; items: Array<{ id: string; text: string }> }
+  | { type: "draft_plan.approved"; request_key: string };
 
 type WebSocketLike = {
   onopen: ((event: Event) => void) | null;
@@ -80,6 +82,9 @@ export function createAgentRealtimeSession({
     },
     stopRun() {
       sendFrame({ type: "run.stop" });
+    },
+    approveDraftPlan({ requestKey }: { requestKey: string }) {
+      sendFrame({ type: "user.approve_plan", request_key: requestKey });
     },
     close() {
       socket.close();
