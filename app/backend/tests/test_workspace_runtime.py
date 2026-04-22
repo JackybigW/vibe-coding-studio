@@ -11,6 +11,7 @@ from core.database import Base, get_db
 from dependencies.auth import get_current_user
 from routers.workspace_runtime import ensure_runtime_for_project, router
 from schemas.auth import UserResponse
+from services.preview_contract import PreviewContract, PreviewServiceConfig
 
 
 # ---------------------------------------------------------------------------
@@ -192,3 +193,106 @@ async def test_ensure_runtime_embeds_preview_session_key_in_session(memory_db):
 
     assert session.preview_session_key is not None
     assert len(session.preview_session_key) > 10
+
+
+@pytest.mark.asyncio
+async def test_ensure_runtime_sets_frontend_status_starting_on_timeout(memory_db):
+    """If wait_for_service times out, frontend_status should be 'starting', not 'running'."""
+    with (
+        patch("routers.workspace_runtime.SandboxRuntimeService") as MockSandbox,
+        patch("routers.workspace_runtime.ProjectWorkspaceService") as MockWorkspace,
+        patch("routers.workspace_runtime.load_preview_contract", return_value=None),
+    ):
+        mock_sandbox = MockSandbox.return_value
+        mock_sandbox.ensure_runtime = AsyncMock(return_value="atoms-user-1-42")
+        mock_sandbox.get_runtime_ports = AsyncMock(
+            return_value={"frontend_port": 32000, "backend_port": None, "preview_port": 32000}
+        )
+        mock_sandbox.start_preview_services = AsyncMock(return_value=(0, "", ""))
+        mock_sandbox.wait_for_service = AsyncMock(return_value=False)  # Timeout
+
+        mock_paths = MagicMock()
+        mock_paths.host_root = Path("/tmp/fake")
+        MockWorkspace.return_value.resolve_paths.return_value = mock_paths
+
+        session = await ensure_runtime_for_project(memory_db, user_id="user-1", project_id=42)
+
+    assert session.frontend_status == "starting"
+    assert session.backend_status == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_ensure_runtime_waits_for_backend_when_contract_declares_it(memory_db):
+    """When .atoms/preview.json has a backend section and wait_for_service succeeds, backend_status must be 'running'."""
+    fake_contract = PreviewContract(
+        frontend=PreviewServiceConfig(command="pnpm run dev", healthcheck_path="/"),
+        backend=PreviewServiceConfig(
+            command="uvicorn app.main:app --host 0.0.0.0 --port 8000",
+            healthcheck_path="/health",
+        ),
+    )
+
+    wait_calls = []
+
+    async def _fake_wait(container_name, port, path="/", **kwargs):
+        wait_calls.append(port)
+        return True
+
+    with (
+        patch("routers.workspace_runtime.SandboxRuntimeService") as MockSandbox,
+        patch("routers.workspace_runtime.ProjectWorkspaceService") as MockWorkspace,
+        patch("routers.workspace_runtime.load_preview_contract", return_value=fake_contract),
+    ):
+        mock_sandbox = MockSandbox.return_value
+        mock_sandbox.ensure_runtime = AsyncMock(return_value="atoms-user-1-42")
+        mock_sandbox.get_runtime_ports = AsyncMock(
+            return_value={"frontend_port": 32000, "backend_port": 32001, "preview_port": 32000}
+        )
+        mock_sandbox.start_preview_services = AsyncMock(return_value=(0, "", ""))
+        mock_sandbox.wait_for_service = AsyncMock(side_effect=_fake_wait)
+
+        mock_paths = MagicMock()
+        mock_paths.host_root = Path("/tmp/fake")
+        MockWorkspace.return_value.resolve_paths.return_value = mock_paths
+
+        session = await ensure_runtime_for_project(memory_db, user_id="user-1", project_id=42)
+
+    assert session.backend_status == "running"
+    assert 32001 in wait_calls
+
+
+@pytest.mark.asyncio
+async def test_ensure_runtime_sets_backend_status_starting_on_timeout(memory_db):
+    """If backend wait_for_service times out, backend_status should be 'starting'."""
+    fake_contract = PreviewContract(
+        frontend=PreviewServiceConfig(command="pnpm run dev", healthcheck_path="/"),
+        backend=PreviewServiceConfig(
+            command="uvicorn app.main:app --host 0.0.0.0 --port 8000",
+            healthcheck_path="/health",
+        ),
+    )
+
+    async def _fake_wait(container_name, port, path="/", **kwargs):
+        return port == 32000  # Frontend ready, backend times out
+
+    with (
+        patch("routers.workspace_runtime.SandboxRuntimeService") as MockSandbox,
+        patch("routers.workspace_runtime.ProjectWorkspaceService") as MockWorkspace,
+        patch("routers.workspace_runtime.load_preview_contract", return_value=fake_contract),
+    ):
+        mock_sandbox = MockSandbox.return_value
+        mock_sandbox.ensure_runtime = AsyncMock(return_value="atoms-user-1-42")
+        mock_sandbox.get_runtime_ports = AsyncMock(
+            return_value={"frontend_port": 32000, "backend_port": 32001, "preview_port": 32000}
+        )
+        mock_sandbox.start_preview_services = AsyncMock(return_value=(0, "", ""))
+        mock_sandbox.wait_for_service = AsyncMock(side_effect=_fake_wait)
+
+        mock_paths = MagicMock()
+        mock_paths.host_root = Path("/tmp/fake")
+        MockWorkspace.return_value.resolve_paths.return_value = mock_paths
+
+        session = await ensure_runtime_for_project(memory_db, user_id="user-1", project_id=42)
+
+    assert session.frontend_status == "running"
+    assert session.backend_status == "starting"
