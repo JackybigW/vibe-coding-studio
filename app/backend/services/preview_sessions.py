@@ -20,3 +20,18 @@ def build_preview_urls(preview_session_key: str) -> dict[str, str]:
         "preview_frontend_url": f"/preview/{preview_session_key}/frontend/",
         "preview_backend_url": f"/preview/{preview_session_key}/backend/",
     }
+
+
+def can_reuse_preview_session(
+    preview_session_key: str | None,
+    preview_expires_at: datetime | None,
+    now: datetime | None = None,
+) -> bool:
+    if not preview_session_key:
+        return False
+    if preview_expires_at is None:
+        return True
+    current_time = now or datetime.now(timezone.utc)
+    if preview_expires_at.tzinfo is None:
+        preview_expires_at = preview_expires_at.replace(tzinfo=timezone.utc)
+    return preview_expires_at > current_time

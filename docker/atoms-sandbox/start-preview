@@ -6,6 +6,22 @@ CONTRACT_PATH="${WORKSPACE_ROOT}/.atoms/preview.json"
 FRONTEND_LOG="/tmp/atoms-preview-frontend.log"
 BACKEND_LOG="/tmp/atoms-preview-backend.log"
 
+resolve_frontend_root() {
+  local workspace_root="$1"
+
+  if [[ -f "${workspace_root}/package.json" ]]; then
+    echo "${workspace_root}"
+    return 0
+  fi
+
+  if [[ -f "${workspace_root}/app/frontend/package.json" ]]; then
+    echo "${workspace_root}/app/frontend"
+    return 0
+  fi
+
+  echo "${workspace_root}"
+}
+
 kill_listeners_on_port() {
   local port="$1"
   mapfile -t PORT_PIDS < <(python3 - "${port}" <<'PY'
@@ -56,13 +72,13 @@ PY
 }
 
 install_node_deps_if_needed() {
-  if [[ ! -f "${WORKSPACE_ROOT}/package.json" ]]; then
+  if [[ ! -f "${FRONTEND_ROOT}/package.json" ]]; then
     return
   fi
 
-  if [[ ! -d "${WORKSPACE_ROOT}/node_modules" ]] || [[ "${WORKSPACE_ROOT}/package.json" -nt "${WORKSPACE_ROOT}/node_modules" ]] || [[ -f "${WORKSPACE_ROOT}/pnpm-lock.yaml" && "${WORKSPACE_ROOT}/pnpm-lock.yaml" -nt "${WORKSPACE_ROOT}/node_modules" ]]; then
+  if [[ ! -d "${FRONTEND_ROOT}/node_modules" ]] || [[ "${FRONTEND_ROOT}/package.json" -nt "${FRONTEND_ROOT}/node_modules" ]] || [[ -f "${FRONTEND_ROOT}/pnpm-lock.yaml" && "${FRONTEND_ROOT}/pnpm-lock.yaml" -nt "${FRONTEND_ROOT}/node_modules" ]]; then
     (
-      cd "${WORKSPACE_ROOT}"
+      cd "${FRONTEND_ROOT}"
       pnpm install --prefer-offline
     )
   fi
@@ -109,13 +125,18 @@ export ATOMS_PREVIEW_BACKEND_BASE="${ATOMS_PREVIEW_BACKEND_BASE:-/api}"
 export VITE_ATOMS_PREVIEW_FRONTEND_BASE="${VITE_ATOMS_PREVIEW_FRONTEND_BASE:-${ATOMS_PREVIEW_FRONTEND_BASE}}"
 export VITE_ATOMS_PREVIEW_BACKEND_BASE="${VITE_ATOMS_PREVIEW_BACKEND_BASE:-${ATOMS_PREVIEW_BACKEND_BASE}}"
 
+FRONTEND_ROOT="$(resolve_frontend_root "${WORKSPACE_ROOT}")"
+
 install_node_deps_if_needed
 
 if [[ "${FRONTEND_COMMAND}" == "pnpm run dev -- --host 0.0.0.0 --port 3000" ]] || [[ "${FRONTEND_COMMAND}" == "pnpm run dev"* ]]; then
   /usr/local/bin/start-dev >"${FRONTEND_LOG}" 2>&1
 else
   kill_listeners_on_port 3000
-  nohup bash -lc "${FRONTEND_COMMAND}" >"${FRONTEND_LOG}" 2>&1 &
+  (
+    cd "${FRONTEND_ROOT}"
+    nohup bash -lc "${FRONTEND_COMMAND}" >"${FRONTEND_LOG}" 2>&1 &
+  )
 fi
 
 if [[ -n "${BACKEND_COMMAND:-}" ]]; then

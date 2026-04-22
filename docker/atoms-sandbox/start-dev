@@ -11,14 +11,31 @@ if [[ -z "${PROJECT_ID}" ]]; then
     exit 2
 fi
 
+resolve_frontend_root() {
+    local workspace_root="$1"
+
+    if [[ -f "${workspace_root}/package.json" ]]; then
+        echo "${workspace_root}"
+        return 0
+    fi
+
+    if [[ -f "${workspace_root}/app/frontend/package.json" ]]; then
+        echo "${workspace_root}/app/frontend"
+        return 0
+    fi
+
+    echo "${workspace_root}"
+}
+
 WORKSPACE_ROOT="${ATOMS_WORKSPACE_ROOT:-/workspace}"
+FRONTEND_ROOT="$(resolve_frontend_root "${WORKSPACE_ROOT}")"
 BASE_PATH="${ATOMS_PREVIEW_FRONTEND_BASE:-/api/v1/workspace-runtime/projects/${PROJECT_ID}/preview/}"
 LOG_FILE="/tmp/atoms-dev.log"
 
-cd "${WORKSPACE_ROOT}"
+cd "${FRONTEND_ROOT}"
 
 if [[ ! -f "package.json" ]]; then
-    echo "start-dev: ${WORKSPACE_ROOT}/package.json not found; nothing to start" >&2
+    echo "start-dev: package.json not found under ${WORKSPACE_ROOT} or ${WORKSPACE_ROOT}/app/frontend; nothing to start" >&2
     exit 3
 fi
 

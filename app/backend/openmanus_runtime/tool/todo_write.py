@@ -100,7 +100,13 @@ class TodoWriteTool(BaseTool):
             raise ToolError("At most one item may be in_progress at a time")
 
         content = _render_todo_markdown(items)
-        await self._file_operator.write_file("/workspace/docs/todo.md", content)
+        if self._approval_gate is not None:
+            self._approval_gate.begin_todo_write()
+        try:
+            await self._file_operator.write_file("/workspace/docs/todo.md", content)
+        finally:
+            if self._approval_gate is not None:
+                self._approval_gate.end_todo_write()
 
         event = {"type": "todo.updated", "items": items}
         result = self._event_sink(event)
@@ -139,5 +145,8 @@ class TodoWriteTool(BaseTool):
             result = self._event_sink(summary_event)
             if hasattr(result, "__await__"):
                 await result
+
+        if self._approval_gate is not None:
+            self._approval_gate.record_todo_written()
 
         return CLIResult(output=f"docs/todo.md updated with {len(items)} items.")

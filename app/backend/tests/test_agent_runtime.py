@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -739,6 +740,57 @@ def test_agent_run_emits_preview_bundle(monkeypatch):
     assert payload["backend_status"] == "running"
 
 
+def test_agent_run_renews_expired_preview_session_key(monkeypatch):
+    class _ExistingExpiredSession:
+        preview_session_key = "expired-preview-session"
+        preview_expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        frontend_status = "running"
+        backend_status = "running"
+
+    class _CreatedSession:
+        preview_session_key = "fresh-preview-session"
+        preview_expires_at = None
+        frontend_status = "running"
+        backend_status = "running"
+
+    async def fake_create(self, data):
+        assert data["preview_session_key"] == "fresh-preview-session"
+        return _CreatedSession()
+
+    async def fake_get_by_project(self, user_id, project_id):
+        return _ExistingExpiredSession()
+
+    monkeypatch.setattr("routers.agent_runtime.WorkspaceRuntimeSessionsService.create", fake_create)
+    monkeypatch.setattr("routers.agent_runtime.WorkspaceRuntimeSessionsService.get_by_project", fake_get_by_project)
+    monkeypatch.setattr(
+        "routers.agent_runtime.new_preview_session_fields",
+        lambda: {
+            "preview_session_key": "fresh-preview-session",
+            "preview_expires_at": None,
+            "frontend_status": "starting",
+            "backend_status": "stopped",
+        },
+    )
+    monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", PromptCapturingAgent)
+    monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
+    monkeypatch.setattr("routers.agent_runtime._get_workspace_service", lambda: _FakeWorkspaceService())
+    fake_sandbox = _FakeSandboxService()
+    monkeypatch.setattr("routers.agent_runtime._get_sandbox_service", lambda: fake_sandbox)
+
+    response = _post_agent_run(monkeypatch)
+    body = response.text
+    preview_line = next(
+        line for line in body.splitlines()
+        if line.startswith("data: ") and '"type": "preview_ready"' in line
+    )
+    payload = json.loads(preview_line.removeprefix("data: "))
+
+    assert response.status_code == 200
+    assert payload["preview_session_key"] == "fresh-preview-session"
+    assert fake_sandbox.preview_envs[0] is not None
+    assert fake_sandbox.preview_envs[0]["ATOMS_PREVIEW_FRONTEND_BASE"] == "/preview/fresh-preview-session/frontend/"
+
+
 def test_agent_prompt_includes_skill_metadata(monkeypatch):
     captured_prompt = {}
 
@@ -981,3 +1033,4 @@ def test_task_prompt_contains_orchestration_workflow_instructions(monkeypatch):
     assert "draft_plan" in prompt_value
     assert "docs/plans/" in prompt_value
     assert "todo_write" in prompt_value
+    assert "must call `todo_write` before implementation" in prompt_value

@@ -6,6 +6,11 @@ import { toast } from "sonner";
 import type { AgentRealtimeEvent } from "@/lib/agentRealtime";
 import { WorkspacePreviewBundle } from "@/lib/workspaceRuntime";
 
+interface PreviewFailure {
+  reason?: string;
+  error?: string;
+}
+
 export interface ProjectFile {
   id?: number;
   file_path: string;
@@ -29,6 +34,8 @@ interface WorkspaceContextType {
   setPreviewUrl: (url: string) => void;
   preview: Partial<WorkspacePreviewBundle>;
   setPreview: (preview: Partial<WorkspacePreviewBundle>) => void;
+  previewFailure: PreviewFailure | null;
+  setPreviewFailure: (failure: PreviewFailure | null) => void;
   clearPreview: () => void;
   previewKey: number;
   reloadPreview: () => void;
@@ -56,6 +63,8 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   setPreviewUrl: () => {},
   preview: {},
   setPreview: () => {},
+  previewFailure: null,
+  setPreviewFailure: () => {},
   clearPreview: () => {},
   previewKey: 0,
   reloadPreview: () => {},
@@ -151,6 +160,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [preview, setPreviewState] = useState<Partial<WorkspacePreviewBundle>>({});
+  const [previewFailure, setPreviewFailureState] = useState<PreviewFailure | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const [sessionStatus, setSessionStatus] = useState("idle");
@@ -166,6 +176,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   // Reset preview whenever the active project changes
   useEffect(() => {
     setPreviewState({});
+    setPreviewFailureState(null);
     setSessionStatus("idle");
     setProgressItems([]);
     setTerminalLogs([]);
@@ -193,10 +204,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const setPreview = useCallback((p: Partial<WorkspacePreviewBundle>) => {
     setPreviewState(p);
+    setPreviewFailureState(null);
+  }, []);
+
+  const setPreviewFailure = useCallback((failure: PreviewFailure | null) => {
+    setPreviewFailureState(failure);
   }, []);
 
   const clearPreview = useCallback(() => {
     setPreviewState({});
+    setPreviewFailureState(null);
   }, []);
 
   // Derived legacy previewUrl for backward-compat
@@ -277,6 +294,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (event.status === "running") {
         setProgressItems([]);
         setTerminalLogs([]);
+        setPreviewFailureState(null);
       } else if (event.status === "completed" || event.status === "failed" || event.status === "stopped") {
         setProgressItems([]);
       }
@@ -318,12 +336,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         frontend_status: event.frontend_status,
         backend_status: event.backend_status,
       }));
+      setPreviewFailureState(null);
       setPreviewKey((currentKey) => currentKey + 1);
       return;
     }
 
     if (event.type === "preview_failed") {
       setPreviewState({});
+      setPreviewFailureState({
+        reason: event.reason,
+        error: event.error,
+      });
       setPreviewKey((currentKey) => currentKey + 1);
       return;
     }
@@ -431,6 +454,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setPreviewUrl,
         preview,
         setPreview,
+        previewFailure,
+        setPreviewFailure,
         clearPreview,
         previewKey,
         reloadPreview,

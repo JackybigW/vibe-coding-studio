@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as WorkspaceContextModule from "@/contexts/WorkspaceContext";
-import ProjectWorkspacePage from "./ProjectWorkspace";
+import ProjectWorkspacePage, { PreviewSurface } from "./ProjectWorkspace";
 
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({ user: { id: "user-1", credits: 0 }, isAuthenticated: true }),
@@ -56,17 +56,20 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-describe("task summary strip", () => {
-  afterEach(() => {
-    cleanup();
-  });
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
+describe("task summary strip", () => {
   it("shows task strip when task summaries are present", async () => {
     const spy = vi.spyOn(WorkspaceContextModule, "useWorkspace").mockReturnValue({
       setProjectId: vi.fn(),
       previewHtml: "",
+      previewFailure: null,
       preview: {},
       setPreview: vi.fn(),
+      setPreviewFailure: vi.fn(),
       clearPreview: vi.fn(),
       terminalLogs: [],
       previewKey: 0,
@@ -118,4 +121,21 @@ it("shows degraded banner when backend is not yet running", async () => {
   fireEvent.click(appViewerTab);
 
   expect(await screen.findByText(/Backend preview is still starting/i)).toBeInTheDocument();
+});
+
+it("shows preview failure state instead of falling back to srcDoc", async () => {
+  render(
+    <div className="h-[400px] w-[600px]">
+      <PreviewSurface
+        frontendUrl=""
+        previewHtml="<html><body><main>Fallback preview</main></body></html>"
+        previewFailure={{ reason: "timeout", error: "preview bootstrap failed" }}
+        previewKey={0}
+      />
+    </div>
+  );
+
+  expect(await screen.findByText(/Preview failed to start/i)).toBeInTheDocument();
+  expect(screen.getByText("preview bootstrap failed")).toBeInTheDocument();
+  expect(screen.queryByTitle("App Preview")).not.toBeInTheDocument();
 });

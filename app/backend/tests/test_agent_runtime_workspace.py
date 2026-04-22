@@ -413,6 +413,52 @@ async def test_container_bash_session_allows_read_only_workspace_commands():
 
 
 @pytest.mark.asyncio
+async def test_container_bash_session_allows_read_only_commands_after_plan_before_todo():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve(request_key="req-1")
+    gate.record_plan_written("/workspace/docs/plans/2026-04-22-billing.md")
+    session = ContainerBashSession(runtime_service, "container-1", approval_gate=gate)
+
+    result = await session.run("rg --files /workspace/app/frontend")
+
+    assert runtime_service.calls == [
+        ("container-1", "cd /workspace && rg --files /workspace/app/frontend")
+    ]
+    assert result.output == "ok"
+
+
+@pytest.mark.asyncio
+async def test_container_bash_session_blocks_write_commands_after_plan_before_todo():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve(request_key="req-1")
+    gate.record_plan_written("/workspace/docs/plans/2026-04-22-billing.md")
+    session = ContainerBashSession(runtime_service, "container-1", approval_gate=gate)
+
+    with pytest.raises(ToolError):
+        await session.run("touch /workspace/app/frontend/src/App.tsx")
+
+    assert runtime_service.calls == []
+
+
+@pytest.mark.asyncio
 async def test_container_bash_session_allows_read_only_interpreter_workspace_inspection():
     class FakeRuntimeService:
         def __init__(self):
@@ -652,7 +698,8 @@ def test_approval_gate_allows_plan_write_after_approval():
     gate.approve(request_key="req-1")
     gate.check_write("/workspace/docs/plans/2026-04-22-auth.md")  # should not raise
     gate.record_plan_written("/workspace/docs/plans/2026-04-22-auth.md")
-    gate.check_write("/workspace/app/frontend/src/App.tsx")  # should not raise once plan exists
+    with pytest.raises(ToolError):
+        gate.check_write("/workspace/app/frontend/src/App.tsx")
 
 
 def test_approval_gate_off_when_not_required():
@@ -713,6 +760,14 @@ def test_approval_gate_record_plan_written_is_idempotent():
     gate.record_plan_written("/workspace/docs/plans/2026-04-22-billing.md")
     gate.record_plan_written("/workspace/docs/plans/2026-04-22-billing.md")
     gate.check_todo_write()  # must not raise
+
+
+def test_approval_gate_plan_written_but_todo_missing_blocks_implementation_write():
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve(request_key="req-1")
+    gate.record_plan_written("/workspace/docs/plans/2026-04-22-billing.md")
+    with pytest.raises(ToolError):
+        gate.check_write("/workspace/app/frontend/src/App.tsx")
 
 
 @pytest.mark.asyncio
@@ -791,3 +846,42 @@ async def test_todo_write_allowed_after_plan_write(tmp_path):
     result = await tool.execute(items=[{"id": "1", "text": "Build billing page", "status": "pending"}])
     assert "updated" in result.output
     assert (tmp_path / "docs" / "todo.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_project_file_operator_blocks_direct_todo_write_before_todo_tool(tmp_path):
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve(request_key="req-1")
+    operator = ProjectFileOperator(
+        host_root=tmp_path,
+        container_root=Path("/workspace"),
+        approval_gate=gate,
+    )
+    await operator.write_file("/workspace/docs/plans/2026-04-22-billing.md", "# Plan")
+
+    with pytest.raises(ToolError):
+        await operator.write_file("/workspace/docs/todo.md", "# Todo")
+
+
+@pytest.mark.asyncio
+async def test_todo_write_unblocks_implementation_writes(tmp_path):
+    from openmanus_runtime.tool.todo_write import TodoWriteTool
+
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve(request_key="req-1")
+    operator = ProjectFileOperator(
+        host_root=tmp_path,
+        container_root=Path("/workspace"),
+        approval_gate=gate,
+    )
+    await operator.write_file("/workspace/docs/plans/2026-04-22-billing.md", "# Plan")
+
+    tool = TodoWriteTool.create(
+        file_operator=operator,
+        event_sink=lambda event: None,
+        approval_gate=gate,
+    )
+    await tool.execute(items=[{"id": "1", "text": "Build billing page", "status": "pending"}])
+
+    await operator.write_file("/workspace/app/frontend/src/App.tsx", "export default function App() {}")
+    assert (tmp_path / "app" / "frontend" / "src" / "App.tsx").exists()

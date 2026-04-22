@@ -10,7 +10,7 @@ from dependencies.auth import get_current_user
 from schemas.auth import UserResponse
 from schemas.workspace_runtime import WorkspaceRuntimeStatusResponse
 from services.preview_contract import load_preview_contract
-from services.preview_sessions import build_preview_urls, new_preview_session_fields
+from services.preview_sessions import build_preview_urls, can_reuse_preview_session, new_preview_session_fields
 from services.project_workspace import ProjectWorkspaceService
 from services.projects import ProjectsService
 from services.sandbox_runtime import SandboxRuntimeService
@@ -35,7 +35,11 @@ async def ensure_runtime_for_project(
     """
     sessions_service = WorkspaceRuntimeSessionsService(db)
     existing = await sessions_service.get_by_project(user_id, project_id)
-    if existing and existing.status == "running":
+    if (
+        existing
+        and existing.status == "running"
+        and can_reuse_preview_session(existing.preview_session_key, existing.preview_expires_at)
+    ):
         return existing
 
     workspace_service = ProjectWorkspaceService(base_root=_WORKSPACES_ROOT)
@@ -64,12 +68,15 @@ async def ensure_runtime_for_project(
         "VITE_ATOMS_PREVIEW_FRONTEND_BASE": preview_urls["preview_frontend_url"],
         "VITE_ATOMS_PREVIEW_BACKEND_BASE": preview_urls["preview_backend_url"],
     }
-    await sandbox_service.start_preview_services(container_name, env=preview_env)
+    returncode, stdout, stderr = await sandbox_service.start_preview_services(container_name, env=preview_env)
+    if returncode != 0:
+        message = stderr.strip() or stdout.strip() or "start-preview failed"
+        raise RuntimeError(message)
 
     # Wait for frontend readiness.
     frontend_ready = False
     if frontend_port:
-        frontend_ready = await sandbox_service.wait_for_service(container_name, frontend_port)
+        frontend_ready = await sandbox_service.wait_for_service(container_name, 3000)
 
     # Check preview contract for optional backend service.
     contract = load_preview_contract(paths.host_root)
@@ -77,7 +84,7 @@ async def ensure_runtime_for_project(
     if contract and contract.backend and backend_port:
         backend_ready = await sandbox_service.wait_for_service(
             container_name,
-            backend_port,
+            8000,
             path=contract.backend.healthcheck_path,
         )
 

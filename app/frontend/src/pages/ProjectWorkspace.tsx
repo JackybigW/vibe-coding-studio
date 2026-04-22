@@ -57,22 +57,86 @@ interface Project {
   deploy_url?: string;
 }
 
+export function PreviewSurface({
+  frontendUrl,
+  previewHtml,
+  previewFailure,
+  previewKey,
+}: {
+  frontendUrl?: string;
+  previewHtml: string;
+  previewFailure?: { reason?: string; error?: string } | null;
+  previewKey: number;
+}) {
+  if (previewFailure) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-red-50 to-amber-50">
+        <div className="text-center p-8 max-w-md">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-red-500 to-amber-500 flex items-center justify-center mx-auto mb-4">
+            <Eye className="w-8 h-8 text-white" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            Preview failed to start
+          </h3>
+          <p className="text-sm text-gray-600">
+            {previewFailure.error ?? "The runtime preview is unavailable right now. Retry after the dev server restarts."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (frontendUrl || previewHtml) {
+    return (
+      <iframe
+        key={previewKey}
+        src={frontendUrl || undefined}
+        srcDoc={!frontendUrl ? previewHtml : undefined}
+        title="App Preview"
+        className="w-full h-full border-0"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+      />
+    );
+  }
+
+  return (
+    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="text-center p-8">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#7C3AED] to-[#A855F7] flex items-center justify-center mx-auto mb-4">
+          <Eye className="w-8 h-8 text-white" />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+          Live Preview
+        </h3>
+        <p className="text-sm text-gray-500 max-w-xs">
+          Your app preview will appear here as you build. Start
+          chatting with the AI to generate code.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** Inner workspace that uses the context */
-function WorkspaceInner() {
+export function WorkspaceInner() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
   const {
+    projectId: activeProjectId,
     setProjectId,
     previewHtml,
     preview,
+    previewFailure,
     setPreview,
+    setPreviewFailure,
+    clearPreview,
     terminalLogs,
     previewKey,
     reloadPreview,
     taskSummaries,
   } = useWorkspace();
-  const projectId = id ? parseInt(id) : null;
+  const routeProjectId = id ? parseInt(id) : null;
 
   const [project, setProject] = useState<Project | null>(null);
   const [leftTab, setLeftTab] = useState<TabType>("chat");
@@ -89,28 +153,33 @@ function WorkspaceInner() {
   const [isPublishing, setIsPublishing] = useState(false);
   // Sync projectId to context
   useEffect(() => {
-    setProjectId(projectId);
-  }, [projectId, setProjectId]);
+    setProjectId(routeProjectId);
+  }, [routeProjectId, setProjectId]);
 
-  // Ensure workspace runtime is ready
+  // Ensure workspace runtime only after the workspace context has switched projects.
   useEffect(() => {
-    if (!projectId) return;
-    ensureWorkspaceRuntime(projectId)
+    if (!routeProjectId || activeProjectId !== routeProjectId) return;
+    ensureWorkspaceRuntime(routeProjectId)
       .then((status) => {
         setPreview({ ...status });
       })
       .catch((err) => {
+        clearPreview();
+        setPreviewFailure({
+          reason: "ensure_failed",
+          error: err instanceof Error ? err.message : String(err),
+        });
         console.error("Failed to ensure workspace runtime:", err);
       });
-  }, [projectId, setPreview]);
+  }, [activeProjectId, clearPreview, routeProjectId, setPreview, setPreviewFailure]);
 
   // Load project
   useEffect(() => {
-    if (!projectId || !isAuthenticated) return;
+    if (!routeProjectId || !isAuthenticated) return;
     const loadProject = async () => {
       try {
         const res = await client.entities.projects.get({
-          id: String(projectId),
+          id: String(routeProjectId),
         });
         if (res?.data) {
           setProject({
@@ -135,15 +204,15 @@ function WorkspaceInner() {
       }
     };
     loadProject();
-  }, [projectId, isAuthenticated, navigate]);
+  }, [routeProjectId, isAuthenticated, navigate]);
 
   const handlePublish = async () => {
-    if (!projectId) return;
+    if (!routeProjectId) return;
     setIsPublishing(true);
     setTimeout(async () => {
       try {
         await client.entities.projects.update({
-          id: String(projectId),
+          id: String(routeProjectId),
           data: {
             deploy_url: `https://${publishUrl}`,
             updated_at: new Date().toISOString(),
@@ -280,31 +349,12 @@ function WorkspaceInner() {
                   height: "100%",
                 }}
               >
-                {frontendUrl || previewHtml ? (
-                  <iframe
-                    key={previewKey}
-                    src={frontendUrl || undefined}
-                    srcDoc={!frontendUrl ? previewHtml : undefined}
-                    title="App Preview"
-                    className="w-full h-full border-0"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
-                    <div className="text-center p-8">
-                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#7C3AED] to-[#A855F7] flex items-center justify-center mx-auto mb-4">
-                        <Eye className="w-8 h-8 text-white" />
-                      </div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                        Live Preview
-                      </h3>
-                      <p className="text-sm text-gray-500 max-w-xs">
-                        Your app preview will appear here as you build. Start
-                        chatting with the AI to generate code.
-                      </p>
-                    </div>
-                  </div>
-                )}
+                <PreviewSurface
+                  frontendUrl={frontendUrl}
+                  previewHtml={previewHtml}
+                  previewFailure={previewFailure}
+                  previewKey={previewKey}
+                />
               </div>
             </div>
           </div>
@@ -342,7 +392,7 @@ function WorkspaceInner() {
     }
   };
 
-  if (!project && projectId) {
+  if (!project && routeProjectId) {
     return (
       <div className="h-screen bg-[#09090B] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-[#A855F7] animate-spin" />
@@ -501,10 +551,10 @@ function WorkspaceInner() {
               <Select
                 value={project?.visibility || "private"}
                 onValueChange={async (val) => {
-                  if (!projectId) return;
+                  if (!routeProjectId) return;
                   try {
                     await client.entities.projects.update({
-                      id: String(projectId),
+                      id: String(routeProjectId),
                       data: { visibility: val },
                     });
                     setProject((prev) =>

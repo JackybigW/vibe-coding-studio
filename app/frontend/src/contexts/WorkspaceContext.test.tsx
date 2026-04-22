@@ -10,6 +10,7 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
     previewKey,
     reloadPreview,
     preview,
+    previewFailure,
     setPreview,
     setProjectId,
     applyFileSnapshot,
@@ -27,9 +28,10 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
   }, [projectId, setProjectId]);
 
   return (
-    <div>
+      <div>
       <div data-testid="preview-key">{previewKey}</div>
       <div data-testid="preview-url">{preview.preview_frontend_url ?? ""}</div>
+      <div data-testid="preview-failure">{previewFailure?.reason ?? ""}</div>
       <div data-testid="file-content">{files.find((file) => file.file_path === "src/App.tsx")?.content ?? ""}</div>
       <div data-testid="session-status">{sessionStatus}</div>
       <div data-testid="progress-items">{progressItems.join(" | ")}</div>
@@ -116,6 +118,17 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
         type="button"
       >
         Apply task store summary
+      </button>
+      <button
+        onClick={() =>
+          applyRealtimeEvent({
+            type: "preview_failed",
+            reason: "timeout",
+          })
+        }
+        type="button"
+      >
+        Apply preview failed
       </button>
     </div>
   );
@@ -301,5 +314,20 @@ describe("WorkspaceContext", () => {
 
     expect(screen.getByTestId("task-summaries-count")).toHaveTextContent("2");
     expect(screen.getByTestId("task-summaries-subjects")).toHaveTextContent("Build UI | Add tests");
+  });
+
+  it("stores preview failure state when preview_failed arrives", () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceConsumer projectId={1} />
+      </WorkspaceProvider>
+    );
+
+    act(() => {
+      screen.getByRole("button", { name: "Apply preview failed" }).click();
+    });
+
+    expect(screen.getByTestId("preview-failure")).toHaveTextContent("timeout");
+    expect(screen.getByTestId("preview-url")).toHaveTextContent("");
   });
 });
