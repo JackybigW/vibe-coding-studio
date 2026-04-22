@@ -211,9 +211,15 @@ class ContainerBashSession:
         self.runtime_service = runtime_service
         self.container_name = container_name
         self.approval_gate = approval_gate
+        self.executed_commands: list[str] = []
+
+    def has_verification_run(self) -> bool:
+        """Returns True if the agent has executed any bash commands (likely for verification)."""
+        return len(self.executed_commands) > 0
 
     async def run(self, command: str) -> CLIResult:
         _validate_bash_write_targets(command, approval_gate=self.approval_gate)
+        self.executed_commands.append(command)
         returncode, stdout, stderr = await self.runtime_service.exec(
             self.container_name,
             f"cd /workspace && {command}",

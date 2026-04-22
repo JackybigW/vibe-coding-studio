@@ -11,7 +11,7 @@ from openmanus_runtime.tool.file_operators import ProjectFileOperator
 from services.agent_run_logs import AgentRunLogStore
 from services.messages import MessagesService
 from services.preview_contract import load_preview_contract
-from services.preview_sessions import build_preview_urls, new_preview_session_fields
+from services.preview_sessions import build_preview_urls, can_reuse_preview_session, new_preview_session_fields
 from services.project_files import Project_filesService
 from services.project_workspace import ProjectWorkspaceService
 from services.sandbox_runtime import SandboxRuntimeService
@@ -269,8 +269,8 @@ async def run_engineer_session(
             "The preview configuration is declared in .atoms/preview.json "
             "using this exact JSON shape:\n"
             '{\n'
-            '  "frontend": {"command": "pnpm run dev -- --host 0.0.0.0 --port 3000", "healthcheck_path": "/"},\n'
-            '  "backend": {"command": "node server/index.js", "healthcheck_path": "/health"}\n'
+            '  "frontend": {"command": "cd /workspace/app/frontend && pnpm run dev -- --host 0.0.0.0 --port 3000", "healthcheck_path": "/"},\n'
+            '  "backend": {"command": "cd /workspace/app/backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000", "healthcheck_path": "/health"}\n'
             '}\n'
             'The "backend" object is optional when the app is frontend-only.\n'
             "If your app has a backend API, set the VITE_ATOMS_PREVIEW_BACKEND_BASE "
@@ -284,7 +284,8 @@ async def run_engineer_session(
             "`docs/plans/{YYYY-MM-DD}-{feature-slug}.md` using str_replace_editor. "
             "This plan must expand each approved item into concrete steps with specific file paths, "
             "what to create/modify, and execution order.\n"
-            "3. Call `todo_write` with the implementation checklist (max 8 items, one in_progress at a time)\n"
+            "3. You must call `todo_write` before implementation with the checklist (max 8 items, one in_progress at a time). "
+            "Implementation writes and write-intent bash commands will be rejected until docs/todo.md is created through this tool.\n"
             "4. Implement the plan step by step\n"
             "5. Run verification commands when done\n\n"
             f"User request:\n{prompt}"
@@ -297,7 +298,53 @@ async def run_engineer_session(
                 f"Available skills (use load_skill tool to get full content):\n{skill_summary}\n\nUser request:\n{prompt}",
             )
         await log_step("agent run started")
-        result = await agent.run(task_prompt)
+        
+        MAX_PUSHBACKS = 3
+        pushbacks_count = 0
+        current_prompt = task_prompt
+        result = None
+        
+        while pushbacks_count <= MAX_PUSHBACKS:
+            result = await agent.run(current_prompt)
+            
+            request_key = gate.approved_request_key
+            if not request_key:
+                break
+                
+            task_store = AgentTaskStore(db)
+            tasks = await task_store.list_tasks(project_id, request_key)
+            incomplete_tasks = [t for t in tasks if t.status != "completed"]
+            
+            has_verification = bash_session.has_verification_run()
+            
+            if not tasks or (not incomplete_tasks and has_verification):
+                break
+                
+            if pushbacks_count >= MAX_PUSHBACKS:
+                await log_step(f"agent failed completion checks after {MAX_PUSHBACKS} pushbacks")
+                break
+                
+            pushback_msgs = []
+            if incomplete_tasks:
+                titles = ", ".join([f"'{t.subject}'" for t in incomplete_tasks])
+                pushback_msgs.append(f"- You left {len(incomplete_tasks)} task(s) incomplete: {titles}. You MUST complete them and use `todo_write` to mark their status as 'completed'.")
+            if tasks and not has_verification:
+                pushback_msgs.append("- You have not executed any bash commands to verify your code. You MUST run at least one verification command (e.g. `npm run build`, `pytest`, `curl`) before finishing.")
+                
+            current_prompt = (
+                "CRITICAL ERROR: You attempted to finish the session, but completion criteria were not met:\n"
+                + "\n".join(pushback_msgs) +
+                "\n\nYou cannot terminate yet. Please continue implementation, verification, and update the todo list."
+            )
+            
+            await log_step(f"Agent attempted to exit early. Pushing back ({pushbacks_count + 1}/{MAX_PUSHBACKS}).")
+            await traced_event_sink({
+                "type": "assistant",
+                "agent": "system",
+                "content": current_prompt
+            })
+            pushbacks_count += 1
+
         await log_step("agent run completed")
 
         if stop_event is not None and stop_event.is_set():
@@ -363,7 +410,10 @@ async def run_engineer_session(
         try:
             sessions_service = workspace_runtime_sessions_service_cls(db)
             existing_session = await sessions_service.get_by_project(user_id=user_id, project_id=project_id)
-            if existing_session and existing_session.preview_session_key:
+            if existing_session and can_reuse_preview_session(
+                existing_session.preview_session_key,
+                existing_session.preview_expires_at,
+            ):
                 session_key_fields: dict[str, object] = {
                     "preview_session_key": existing_session.preview_session_key,
                 }
