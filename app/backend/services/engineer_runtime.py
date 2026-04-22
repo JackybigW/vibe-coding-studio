@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 _WORKSPACES_ROOT = Path(os.environ.get("ATOMS_WORKSPACES_ROOT", "/tmp/atoms_workspaces"))
 
+from services.agent_skill_loader import AgentSkillLoader  # noqa: E402
+
+_skill_loader = AgentSkillLoader()
+
 EventSink = Callable[[dict[str, Any]], Awaitable[None]]
 WorkspaceServiceFactory = Callable[[], ProjectWorkspaceService]
 SandboxServiceFactory = Callable[[], SandboxRuntimeService]
@@ -155,6 +159,7 @@ async def run_engineer_session(
         logger.info("%s agent built name=%s", prefix, agent.name)
 
         from openmanus_runtime.tool.draft_plan import DraftPlanTool
+        from openmanus_runtime.tool.load_skill import LoadSkillTool
         from services.agent_draft_plan import get_agent_draft_plan_service
 
         draft_plan_tool = DraftPlanTool.create(
@@ -162,8 +167,10 @@ async def run_engineer_session(
             service=get_agent_draft_plan_service(),
             project_id=project_id,
         )
+        load_skill_tool = LoadSkillTool.create(loader=_skill_loader)
         if hasattr(agent, "available_tools") and agent.available_tools is not None:
             agent.available_tools.add_tool(draft_plan_tool)
+            agent.available_tools.add_tool(load_skill_tool)
 
         await event_sink(
             {
@@ -193,6 +200,13 @@ async def run_engineer_session(
             "one-off verification commands.\n\n"
             f"User request:\n{prompt}"
         )
+        skill_listing = _skill_loader.describe_available()
+        if skill_listing:
+            skill_summary = "\n".join(f"- {name}: {desc}" for name, desc in skill_listing.items())
+            task_prompt = task_prompt.replace(
+                f"User request:\n{prompt}",
+                f"Available skills (use load_skill tool to get full content):\n{skill_summary}\n\nUser request:\n{prompt}",
+            )
         logger.info("%s agent.run started", prefix)
         result = await agent.run(task_prompt)
         logger.info("%s agent.run completed", prefix)

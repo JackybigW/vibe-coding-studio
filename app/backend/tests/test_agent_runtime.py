@@ -622,6 +622,26 @@ def test_agent_run_emits_preview_bundle(monkeypatch):
     assert payload["backend_status"] == "running"
 
 
+def test_agent_prompt_includes_skill_metadata(monkeypatch):
+    captured_prompt = {}
+
+    class FakeAgent(PromptCapturingAgent):
+        async def run(self, request: str):
+            captured_prompt["value"] = request
+            return await super().run(request)
+
+    monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", FakeAgent)
+    monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
+    monkeypatch.setattr("routers.agent_runtime._get_workspace_service", lambda: _FakeWorkspaceService())
+    monkeypatch.setattr("routers.agent_runtime._get_sandbox_service", lambda: _FakeSandboxService())
+
+    response = _post_agent_run(monkeypatch)
+
+    assert response.status_code == 200
+    assert "web_sdk" in captured_prompt["value"]
+    assert "custom_api" in captured_prompt["value"]
+
+
 def test_agent_run_marks_backend_not_configured_without_preview_manifest(monkeypatch):
     _FIXED_SESSION_KEY = "preview-session-123"
 
