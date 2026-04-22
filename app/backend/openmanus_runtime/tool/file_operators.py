@@ -174,10 +174,12 @@ class ProjectFileOperator(LocalFileOperator):
         host_root: Path,
         container_root: Path,
         event_sink: Callable[[dict[str, object]], Any] | None = None,
+        approval_gate: Any | None = None,
     ):
         self.host_root = Path(host_root)
         self.container_root = Path(container_root)
         self._event_sink = event_sink
+        self._approval_gate = approval_gate
 
     def _to_host_path(self, path: PathLike) -> Path:
         raw = Path(path)
@@ -194,6 +196,11 @@ class ProjectFileOperator(LocalFileOperator):
         return host_path
 
     def _to_host_write_path(self, path: PathLike) -> Path:
+        # Check approval gate before any write (docs/ exempt)
+        if self._approval_gate is not None:
+            posix = PurePosixPath(str(path))
+            if not posix.is_relative_to(PurePosixPath("/workspace/docs")):
+                self._approval_gate.check_write(path)
         validate_workspace_write_path(path)
         return self._to_host_path(path)
 

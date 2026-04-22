@@ -143,10 +143,13 @@ async def run_engineer_session(
             await event_sink({"type": "error", "status": "failure", "error": f"Could not start sandbox: {exc}"})
             return False
 
+        from services.approval_gate import ApprovalGate
+        gate = ApprovalGate(requires_approval=bootstrap_ctx.requires_draft_plan)
         file_operator = ProjectFileOperator(
             host_root=paths.host_root,
             container_root=paths.container_root,
             event_sink=workspace_events.emit,
+            approval_gate=gate,
         )
         bash_session = ContainerBashSession(
             runtime_service=sandbox_service,
@@ -173,6 +176,7 @@ async def run_engineer_session(
             event_sink=event_sink,
             service=draft_plan_service,
             project_id=project_id,
+            approval_gate=gate,
         )
         load_skill_tool = LoadSkillTool.create(loader=_skill_loader)
         todo_write_tool = TodoWriteTool.create(

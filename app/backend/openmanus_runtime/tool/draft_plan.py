@@ -40,14 +40,16 @@ class DraftPlanTool(BaseTool):
     _service: Any = None
     _project_id: int = 0
     _approval_timeout: float = 300.0
+    _approval_gate: Any = None
 
     @classmethod
-    def create(cls, event_sink: Any, service: Any, project_id: int, approval_timeout: float = 300.0) -> "DraftPlanTool":
+    def create(cls, event_sink: Any, service: Any, project_id: int, approval_timeout: float = 300.0, approval_gate: Any = None) -> "DraftPlanTool":
         tool = cls()
         tool._event_sink = event_sink
         tool._service = service
         tool._project_id = project_id
         tool._approval_timeout = approval_timeout
+        tool._approval_gate = approval_gate
         return tool
 
     async def execute(self, request_key: str = "request", items: Optional[list] = None, **_kwargs) -> CLIResult:
@@ -69,6 +71,8 @@ class DraftPlanTool(BaseTool):
             await asyncio.wait_for(approval_event.wait(), timeout=self._approval_timeout)
         except asyncio.TimeoutError:
             raise ToolError("Draft plan approval timed out")
+        if self._approval_gate is not None:
+            self._approval_gate.approve()
         await self._event_sink({
             "type": "draft_plan.approved",
             "request_key": request_key,

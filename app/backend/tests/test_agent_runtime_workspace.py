@@ -11,6 +11,7 @@ from openmanus_runtime.tool.bash import ContainerBashSession
 from openmanus_runtime.tool.file_operators import ProjectFileOperator
 from openmanus_runtime.tool.str_replace_editor import StrReplaceEditor
 from routers.agent_runtime import router
+from services.approval_gate import ApprovalGate
 
 
 # ---------------------------------------------------------------------------
@@ -518,3 +519,49 @@ def test_agent_run_accepts_project_id(monkeypatch):
     body = response.text
     assert "event: session" in body
     assert "event: done" in body
+
+
+# ---------------------------------------------------------------------------
+# ApprovalGate unit tests
+# ---------------------------------------------------------------------------
+
+def test_approval_gate_blocks_write_before_approval():
+    gate = ApprovalGate(requires_approval=True)
+    with pytest.raises(ToolError):
+        gate.check_write("/workspace/app/frontend/src/App.tsx")
+
+
+def test_approval_gate_allows_write_after_approval():
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve()
+    gate.check_write("/workspace/app/frontend/src/App.tsx")  # should not raise
+
+
+def test_approval_gate_off_when_not_required():
+    gate = ApprovalGate(requires_approval=False)
+    gate.check_write("/workspace/app/frontend/src/App.tsx")  # should not raise
+
+
+@pytest.mark.asyncio
+async def test_project_file_operator_blocks_write_before_approval(tmp_path):
+    gate = ApprovalGate(requires_approval=True)
+    operator = ProjectFileOperator(
+        host_root=tmp_path,
+        container_root=Path("/workspace"),
+        approval_gate=gate,
+    )
+    with pytest.raises(ToolError):
+        await operator.write_file("/workspace/app/frontend/src/App.tsx", "content")
+
+
+@pytest.mark.asyncio
+async def test_project_file_operator_allows_docs_write_before_approval(tmp_path):
+    gate = ApprovalGate(requires_approval=True)
+    operator = ProjectFileOperator(
+        host_root=tmp_path,
+        container_root=Path("/workspace"),
+        approval_gate=gate,
+    )
+    # docs/ is exempt from gate — should succeed
+    await operator.write_file("/workspace/docs/todo.md", "# Todo")
+    assert (tmp_path / "docs" / "todo.md").exists()
