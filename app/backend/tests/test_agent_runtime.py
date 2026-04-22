@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -12,6 +13,7 @@ from schemas.auth import UserResponse
 from unittest.mock import AsyncMock, patch
 
 from services.agent_bootstrap import (
+    BootstrapContext,
     _ClassificationResult,
     build_bootstrap_context,
     classify_user_request,
@@ -345,6 +347,66 @@ class _FakeWorkspaceService:
 
     def snapshot_files(self, host_root):
         return {}
+
+
+@pytest.mark.asyncio
+async def test_run_engineer_session_conversation_mode_skips_sandbox(monkeypatch, tmp_path):
+    from services.engineer_runtime import run_engineer_session
+
+    events: list[dict] = []
+
+    class ConversationWorkspacePaths:
+        host_root = tmp_path / "user-1" / "42"
+        container_root = Path("/workspace")
+
+    class ConversationWorkspaceService:
+        def resolve_paths(self, user_id, project_id):
+            ConversationWorkspacePaths.host_root.mkdir(parents=True, exist_ok=True)
+            return ConversationWorkspacePaths
+
+        def materialize_files(self, host_root, project_files):
+            pass
+
+        def snapshot_files(self, host_root):
+            return {}
+
+    class FailingSandboxService:
+        async def ensure_runtime(self, user_id, project_id, host_root):
+            raise AssertionError("sandbox should not start for conversation mode")
+
+    async def fake_event_sink(event: dict):
+        events.append(event)
+
+    async def fake_files_get_list(self, **kwargs):
+        return {"items": []}
+
+    async def fake_messages_get_list(self, **kwargs):
+        return {"items": []}
+
+    monkeypatch.setattr(
+        "services.agent_bootstrap.classify_user_request_async",
+        AsyncMock(return_value=BootstrapContext(mode="conversation", requires_backend_readme=False, requires_draft_plan=False)),
+    )
+    monkeypatch.setattr("services.project_files.Project_filesService.get_list", fake_files_get_list)
+    monkeypatch.setattr("services.messages.MessagesService.get_list", fake_messages_get_list)
+
+    success = await run_engineer_session(
+        db=FakeDB(),
+        user_id="user-1",
+        project_id=42,
+        prompt="hello",
+        model="MiniMax-M2.7-highspeed",
+        event_sink=fake_event_sink,
+        workspace_service_factory=lambda: ConversationWorkspaceService(),
+        sandbox_service_factory=lambda: FailingSandboxService(),
+        agent_cls=FakeAgent,
+        llm_builder=lambda model: None,
+    )
+
+    assert success is True
+    assert any(event.get("type") == "assistant" for event in events)
+    assistant = next(event for event in events if event.get("type") == "assistant")
+    assert "implementation request" in assistant["content"]
 
 
 def test_agent_run_emits_workspace_sync(monkeypatch):

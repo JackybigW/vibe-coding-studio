@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -8,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
 from dependencies.auth import get_current_user
 from schemas.agent_realtime import (
+    AgentLatestRunLogsResponse,
     AgentRealtimeErrorPayload,
     AgentSessionStatePayload,
     AgentSessionTicketRequest,
@@ -15,6 +18,7 @@ from schemas.agent_realtime import (
 )
 from schemas.auth import UserResponse
 from services.engineer_runtime import run_engineer_session
+from services.agent_run_logs import AgentRunLogStore
 from services.agent_realtime import get_agent_realtime_service
 from services.agent_draft_plan import get_agent_draft_plan_service
 from services.projects import ProjectsService
@@ -22,6 +26,7 @@ from services.projects import ProjectsService
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 logger = logging.getLogger(__name__)
+_WORKSPACES_ROOT = Path(os.environ.get("ATOMS_WORKSPACES_ROOT", "/tmp/atoms_workspaces"))
 
 
 @router.post("/session-ticket", response_model=AgentSessionTicketResponse)
@@ -46,6 +51,25 @@ async def issue_session_ticket(
         assistant_role="engineer",
         expires_at=ticket.expires_at,
     )
+
+
+@router.get("/projects/{project_id}/latest-run-logs", response_model=AgentLatestRunLogsResponse)
+async def latest_run_logs(
+    project_id: int,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await ProjectsService(db).get_by_id(project_id, user_id=current_user.id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    latest = AgentRunLogStore(base_root=_WORKSPACES_ROOT).read_latest_run(
+        user_id=str(current_user.id),
+        project_id=project_id,
+    )
+    if latest is None or not latest.get("run_id"):
+        raise HTTPException(status_code=404, detail="No run logs found")
+    return AgentLatestRunLogsResponse(**latest)
 
 
 @router.websocket("/session/ws")

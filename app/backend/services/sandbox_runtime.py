@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Awaitable, Callable, Optional
 
 
 RunCommand = Callable[..., Awaitable[tuple[int, str, str]]]
+logger = logging.getLogger(__name__)
 
 
 class SandboxRuntimeService:
@@ -36,7 +38,73 @@ class SandboxRuntimeService:
             raise ValueError(f"host_root must exist as a directory: {resolved_host_root}")
 
         container_name = self._container_name(user_id=user_id, project_id=project_id)
-        returncode, stdout, stderr = await self._invoke(
+        returncode, stdout, stderr = await self._run_container(
+            container_name=container_name,
+            resolved_host_root=resolved_host_root,
+            project_id=project_id,
+        )
+        if returncode == 0:
+            return container_name
+
+        message = stderr.strip() or stdout.strip() or "docker run failed"
+        if "is already in use" in message:
+            logger.info("sandbox container name conflict detected container=%s", container_name)
+            runtime_identity = await self.inspect_runtime(container_name)
+            if not await self._matches_expected_runtime(
+                runtime_identity=runtime_identity,
+                resolved_host_root=resolved_host_root,
+                project_id=project_id,
+            ):
+                logger.warning("sandbox stale container detected; recreating container=%s", container_name)
+                remove_returncode, remove_stdout, remove_stderr = await self._invoke(
+                    "docker",
+                    "rm",
+                    "-f",
+                    container_name,
+                )
+                if remove_returncode != 0:
+                    remove_message = remove_stderr.strip() or remove_stdout.strip() or "docker rm failed"
+                    raise RuntimeError(remove_message)
+
+                recreate_returncode, recreate_stdout, recreate_stderr = await self._run_container(
+                    container_name=container_name,
+                    resolved_host_root=resolved_host_root,
+                    project_id=project_id,
+                )
+                if recreate_returncode == 0:
+                    logger.info("sandbox container recreated container=%s", container_name)
+                    return container_name
+
+                recreate_message = recreate_stderr.strip() or recreate_stdout.strip() or "docker run failed"
+                raise RuntimeError(recreate_message)
+
+            start_returncode, start_stdout, start_stderr = await self._invoke(
+                "docker",
+                "start",
+                container_name,
+            )
+            if start_returncode == 0:
+                logger.info("sandbox container started container=%s", container_name)
+                return container_name
+
+            start_message = start_stderr.strip() or start_stdout.strip() or "docker start failed"
+            if "already running" in start_message:
+                logger.info("sandbox container already running container=%s", container_name)
+                return container_name
+            raise RuntimeError(start_message)
+
+        if returncode != 0:
+            raise RuntimeError(message)
+        return container_name
+
+    async def _run_container(
+        self,
+        *,
+        container_name: str,
+        resolved_host_root: Path,
+        project_id: int,
+    ) -> tuple[int, str, str]:
+        return await self._invoke(
             "docker",
             "run",
             "-d",
@@ -56,45 +124,27 @@ class SandboxRuntimeService:
             "sleep",
             "infinity",
         )
-        if returncode == 0:
-            return container_name
 
-        message = stderr.strip() or stdout.strip() or "docker run failed"
-        if "is already in use" in message:
-            runtime_identity = await self.inspect_runtime(container_name)
-            workspace_source = self._normalize_existing_path(runtime_identity.get("workspace_source"))
-            image_id = runtime_identity.get("image_id")
-            expected_image_id = await self.inspect_image_id(self.SANDBOX_IMAGE)
-            has_required_ports = {"3000/tcp", "8000/tcp"}.issubset(runtime_identity.get("port_bindings", set()))
-            has_matching_project_env = f"ATOMS_PROJECT_ID={project_id}" in runtime_identity.get("env", [])
-            if (
-                workspace_source != str(resolved_host_root)
-                or image_id != expected_image_id
-                or runtime_identity.get("working_dir") != "/workspace"
-                or runtime_identity.get("command") != ["sleep", "infinity"]
-                or not has_required_ports
-                or not has_matching_project_env
-            ):
-                raise RuntimeError(
-                    f"existing container {container_name} does not match requested workspace or image"
-                )
-
-            start_returncode, start_stdout, start_stderr = await self._invoke(
-                "docker",
-                "start",
-                container_name,
-            )
-            if start_returncode == 0:
-                return container_name
-
-            start_message = start_stderr.strip() or start_stdout.strip() or "docker start failed"
-            if "already running" in start_message:
-                return container_name
-            raise RuntimeError(start_message)
-
-        if returncode != 0:
-            raise RuntimeError(message)
-        return container_name
+    async def _matches_expected_runtime(
+        self,
+        *,
+        runtime_identity: dict[str, object],
+        resolved_host_root: Path,
+        project_id: int,
+    ) -> bool:
+        workspace_source = self._normalize_existing_path(runtime_identity.get("workspace_source"))
+        image_id = runtime_identity.get("image_id")
+        expected_image_id = await self.inspect_image_id(self.SANDBOX_IMAGE)
+        has_required_ports = {"3000/tcp", "8000/tcp"}.issubset(runtime_identity.get("port_bindings", set()))
+        has_matching_project_env = f"ATOMS_PROJECT_ID={project_id}" in runtime_identity.get("env", [])
+        return (
+            workspace_source == str(resolved_host_root)
+            and image_id == expected_image_id
+            and runtime_identity.get("working_dir") == "/workspace"
+            and runtime_identity.get("command") == ["sleep", "infinity"]
+            and has_required_ports
+            and has_matching_project_env
+        )
 
     async def exec(
         self,

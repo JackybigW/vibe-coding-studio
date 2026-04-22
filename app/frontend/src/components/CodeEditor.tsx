@@ -60,30 +60,6 @@ function getFileIcon(filename: string): string {
   return FILE_ICONS[ext] || "📄";
 }
 
-const DEFAULT_FILES = [
-  {
-    file_path: "src/App.tsx",
-    file_name: "App.tsx",
-    content: `import React from 'react';\n\nexport default function App() {\n  return (\n    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">\n      <h1 className="text-4xl font-bold">Hello World</h1>\n    </div>\n  );\n}`,
-    language: "typescript",
-    is_directory: false,
-  },
-  {
-    file_path: "src/index.css",
-    file_name: "index.css",
-    content: `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\nbody {\n  margin: 0;\n  font-family: system-ui, sans-serif;\n}`,
-    language: "css",
-    is_directory: false,
-  },
-  {
-    file_path: "package.json",
-    file_name: "package.json",
-    content: `{\n  "name": "my-project",\n  "version": "1.0.0",\n  "dependencies": {\n    "react": "^18.3.1",\n    "react-dom": "^18.3.1"\n  }\n}`,
-    language: "json",
-    is_directory: false,
-  },
-];
-
 export default function CodeEditor() {
   const { isAuthenticated } = useAuth();
   const { files, setFiles, projectId, fileVersion } = useWorkspace();
@@ -96,7 +72,9 @@ export default function CodeEditor() {
   // Initialize files from DB or defaults
   useEffect(() => {
     if (!projectId || !isAuthenticated) {
-      setFiles(DEFAULT_FILES);
+      setFiles([]);
+      setTabs([]);
+      setActiveTab("");
       return;
     }
     const loadFiles = async () => {
@@ -118,29 +96,15 @@ export default function CodeEditor() {
             }))
           );
         } else {
-          setFiles(DEFAULT_FILES);
-          for (const file of DEFAULT_FILES) {
-            try {
-              await client.entities.project_files.create({
-                data: {
-                  project_id: projectId,
-                  file_path: file.file_path,
-                  file_name: file.file_name,
-                  content: file.content,
-                  language: file.language,
-                  is_directory: file.is_directory,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                },
-              });
-            } catch {
-              // ignore
-            }
-          }
+          setFiles([]);
+          setTabs([]);
+          setActiveTab("");
         }
       } catch (err) {
         console.error("Failed to load files:", err);
-        setFiles(DEFAULT_FILES);
+        setFiles([]);
+        setTabs([]);
+        setActiveTab("");
       }
     };
     loadFiles();
@@ -148,6 +112,12 @@ export default function CodeEditor() {
 
   // When files change (e.g. AI writes new files), update open tabs and auto-expand dirs
   useEffect(() => {
+    if (files.length === 0) {
+      setTabs([]);
+      setActiveTab("");
+      return;
+    }
+
     // Update content of open tabs if file changed externally
     setTabs((prev) =>
       prev.map((tab) => {
@@ -441,8 +411,11 @@ export default function CodeEditor() {
               }}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-[#52525B] text-sm">
-              Select a file to edit
+            <div className="flex flex-col items-center justify-center h-full text-center px-6">
+              <div className="text-sm text-[#A1A1AA] mb-2">Workspace is empty</div>
+              <div className="text-xs text-[#52525B] max-w-sm">
+                The agent can start from a blank <code>/workspace</code> and create the file structure defined by the system prompt.
+              </div>
             </div>
           )}
         </div>

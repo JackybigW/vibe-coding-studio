@@ -5,6 +5,7 @@ import pkgutil
 import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 from core.config import settings
 from fastapi import FastAPI, HTTPException, Request, status
@@ -24,21 +25,20 @@ def setup_logging():
     if os.environ.get("IS_LAMBDA") == "true":
         return
 
-    # Create the logs directory
-    log_dir = "logs"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    # Create the logs directory relative to this backend module, not cwd.
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate log filename with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"{log_dir}/app_{timestamp}.log"
+    log_file = log_dir / f"app_{timestamp}.log"
 
     # Configure log format
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     # Configure the root logger
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format=log_format,
         handlers=[
             # File handler
@@ -49,8 +49,10 @@ def setup_logging():
     )
 
     # Set log levels for specific modules
-    logging.getLogger("uvicorn").setLevel(logging.DEBUG)
-    logging.getLogger("fastapi").setLevel(logging.DEBUG)
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
+    logging.getLogger("fastapi").setLevel(logging.INFO)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
     # Log configuration details
     logger = logging.getLogger(__name__)

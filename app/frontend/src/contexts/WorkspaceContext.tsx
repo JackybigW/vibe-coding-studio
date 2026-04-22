@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { client } from "@/lib/api";
+import { buildAuthHeaders } from "@/lib/authToken";
+import { getAPIBaseURL } from "@/lib/config";
 import { toast } from "sonner";
 import type { AgentRealtimeEvent } from "@/lib/agentRealtime";
 import { WorkspacePreviewBundle } from "@/lib/workspaceRuntime";
@@ -150,18 +152,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [projectId, setProjectId] = useState<number | null>(null);
   const [preview, setPreviewState] = useState<Partial<WorkspacePreviewBundle>>({});
   const [previewKey, setPreviewKey] = useState(0);
-  const [terminalLogs, setTerminalLogs] = useState<string[]>([
-    "$ atoms init project",
-    "✓ Project initialized",
-    "$ pnpm install",
-    "✓ Dependencies installed (2.3s)",
-    "$ pnpm run dev",
-    "  VITE v5.4.0  ready in 312ms",
-    "",
-    "  ➜  Local:   http://localhost:5173/",
-    "",
-    "✓ Development server running",
-  ]);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const [sessionStatus, setSessionStatus] = useState("idle");
   const [progressItems, setProgressItems] = useState<string[]>([]);
   const [fileVersion, setFileVersion] = useState(0);
@@ -177,6 +168,27 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setPreviewState({});
     setSessionStatus("idle");
     setProgressItems([]);
+    setTerminalLogs([]);
+    setTaskSummaries([]);
+
+    if (!projectId) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        const response = await fetch(`${getAPIBaseURL()}/api/v1/agent/projects/${projectId}/latest-run-logs`, {
+          headers: buildAuthHeaders(),
+        });
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json() as { entries?: Array<{ content: string }> };
+        setTerminalLogs((payload.entries ?? []).map((entry) => entry.content));
+      } catch (err) {
+        console.error("Failed to load latest run logs:", err);
+      }
+    })();
   }, [projectId]);
 
   const setPreview = useCallback((p: Partial<WorkspacePreviewBundle>) => {
@@ -199,7 +211,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const addTerminalLog = useCallback((log: string) => {
     setTerminalLogs((prev) => {
-      if (log.startsWith("$ tool ") && prev[prev.length - 1] === log) {
+      if (prev[prev.length - 1] === log) {
         return prev;
       }
       return [...prev, log];
@@ -264,6 +276,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setSessionStatus(event.status);
       if (event.status === "running") {
         setProgressItems([]);
+        setTerminalLogs([]);
       } else if (event.status === "completed" || event.status === "failed" || event.status === "stopped") {
         setProgressItems([]);
       }
@@ -277,6 +290,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         }
         return items.concat(event.label);
       });
+      addTerminalLog(`> ${event.label}`);
       return;
     }
 
@@ -392,22 +406,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const writeMultipleFiles = useCallback(
     async (fileUpdates: { path: string; content: string }[]) => {
-      addTerminalLog("");
-      addTerminalLog("$ alex writing files...");
-
       for (const update of fileUpdates) {
         await writeFile(update.path, update.content);
-        addTerminalLog(`  ✓ ${update.path}`);
       }
-
-      addTerminalLog(`✓ ${fileUpdates.length} file(s) written`);
-      addTerminalLog("");
-      addTerminalLog("$ pnpm run dev");
-      addTerminalLog("  ✓ HMR update applied");
 
       toast.success(`${fileUpdates.length} file(s) written to project`);
     },
-    [writeFile, addTerminalLog]
+    [writeFile]
   );
 
   const previewHtml = buildPreviewHtml(files);

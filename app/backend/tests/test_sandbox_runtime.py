@@ -450,13 +450,17 @@ async def test_ensure_runtime_reuses_existing_container_with_var_path_alias(tmp_
 
 
 @pytest.mark.asyncio
-async def test_ensure_runtime_rejects_existing_container_with_wrong_runtime_shape(tmp_path):
+async def test_ensure_runtime_recreates_existing_container_with_wrong_runtime_shape(tmp_path):
+    commands = []
     workspace_root = tmp_path / "user-123" / "42"
     workspace_root.mkdir(parents=True)
 
     async def fake_run(*args):
+        commands.append(args)
         if args[:4] == ("docker", "run", "-d", "--name"):
-            return 125, "", 'Conflict. The container name "/atoms-user-123-42" is already in use.'
+            if sum(1 for cmd in commands if cmd[:4] == ("docker", "run", "-d", "--name")) == 1:
+                return 125, "", 'Conflict. The container name "/atoms-user-123-42" is already in use.'
+            return 0, "container-id-123\n", ""
         if args == ("docker", "inspect", "atoms-user-123-42"):
             return (
                 0,
@@ -467,26 +471,33 @@ async def test_ensure_runtime_rejects_existing_container_with_wrong_runtime_shap
             )
         if args == ("docker", "image", "inspect", "atoms-sandbox:latest"):
             return 0, '[{"Id":"sha256:expected"}]', ""
+        if args == ("docker", "rm", "-f", "atoms-user-123-42"):
+            return 0, "atoms-user-123-42\n", ""
         raise AssertionError(f"unexpected command: {args}")
 
     service = SandboxRuntimeService(project_root=tmp_path, run_command=fake_run)
 
-    with pytest.raises(RuntimeError, match="does not match requested workspace or image"):
-        await service.ensure_runtime(
-            user_id="user-123",
-            project_id=42,
-            host_root=workspace_root,
-        )
+    container_name = await service.ensure_runtime(
+        user_id="user-123",
+        project_id=42,
+        host_root=workspace_root,
+    )
 
+    assert container_name == "atoms-user-123-42"
+    assert ("docker", "rm", "-f", "atoms-user-123-42") in commands
 
 @pytest.mark.asyncio
-async def test_ensure_runtime_rejects_conflicting_existing_container(tmp_path):
+async def test_ensure_runtime_recreates_conflicting_existing_container(tmp_path):
+    commands = []
     workspace_root = tmp_path / "user-123" / "42"
     workspace_root.mkdir(parents=True)
 
     async def fake_run(*args):
+        commands.append(args)
         if args[:4] == ("docker", "run", "-d", "--name"):
-            return 125, "", 'Conflict. The container name "/atoms-user-123-42" is already in use.'
+            if sum(1 for cmd in commands if cmd[:4] == ("docker", "run", "-d", "--name")) == 1:
+                return 125, "", 'Conflict. The container name "/atoms-user-123-42" is already in use.'
+            return 0, "container-id-123\n", ""
         if args == ("docker", "inspect", "atoms-user-123-42"):
             return (
                 0,
@@ -497,26 +508,34 @@ async def test_ensure_runtime_rejects_conflicting_existing_container(tmp_path):
             )
         if args == ("docker", "image", "inspect", "atoms-sandbox:latest"):
             return 0, '[{"Id":"sha256:expected"}]', ""
+        if args == ("docker", "rm", "-f", "atoms-user-123-42"):
+            return 0, "atoms-user-123-42\n", ""
         raise AssertionError(f"unexpected command: {args}")
 
     service = SandboxRuntimeService(project_root=tmp_path, run_command=fake_run)
 
-    with pytest.raises(RuntimeError, match="does not match requested workspace or image"):
-        await service.ensure_runtime(
-            user_id="user-123",
-            project_id=42,
-            host_root=workspace_root,
-        )
+    container_name = await service.ensure_runtime(
+        user_id="user-123",
+        project_id=42,
+        host_root=workspace_root,
+    )
+
+    assert container_name == "atoms-user-123-42"
+    assert ("docker", "rm", "-f", "atoms-user-123-42") in commands
 
 
 @pytest.mark.asyncio
-async def test_ensure_runtime_rejects_existing_container_with_wrong_project_env(tmp_path):
+async def test_ensure_runtime_recreates_existing_container_with_wrong_project_env(tmp_path):
+    commands = []
     workspace_root = tmp_path / "user-1" / "7"
     workspace_root.mkdir(parents=True)
 
     async def fake_run(*args):
+        commands.append(args)
         if args[:4] == ("docker", "run", "-d", "--name"):
-            return 125, "", 'Conflict. The container name "/atoms-user-1-7" is already in use.'
+            if sum(1 for cmd in commands if cmd[:4] == ("docker", "run", "-d", "--name")) == 1:
+                return 125, "", 'Conflict. The container name "/atoms-user-1-7" is already in use.'
+            return 0, "container-id-123\n", ""
         if args == ("docker", "inspect", "atoms-user-1-7"):
             return (
                 0,
@@ -527,16 +546,20 @@ async def test_ensure_runtime_rejects_existing_container_with_wrong_project_env(
             )
         if args == ("docker", "image", "inspect", "atoms-sandbox:latest"):
             return 0, '[{"Id":"sha256:expected"}]', ""
+        if args == ("docker", "rm", "-f", "atoms-user-1-7"):
+            return 0, "atoms-user-1-7\n", ""
         raise AssertionError(f"unexpected command: {args}")
 
     service = SandboxRuntimeService(project_root=tmp_path, run_command=fake_run)
 
-    with pytest.raises(RuntimeError, match="does not match"):
-        await service.ensure_runtime(
-            user_id="user-1",
-            project_id=7,
-            host_root=workspace_root,
-        )
+    container_name = await service.ensure_runtime(
+        user_id="user-1",
+        project_id=7,
+        host_root=workspace_root,
+    )
+
+    assert container_name == "atoms-user-1-7"
+    assert ("docker", "rm", "-f", "atoms-user-1-7") in commands
 
 
 @pytest.mark.asyncio

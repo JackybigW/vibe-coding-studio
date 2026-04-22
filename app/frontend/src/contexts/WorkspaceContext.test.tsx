@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 import { WorkspaceProvider, useWorkspace } from "./WorkspaceContext";
 import type { WorkspacePreviewBundle } from "@/lib/workspaceRuntime";
@@ -122,8 +122,16 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
 }
 
 describe("WorkspaceContext", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ entries: [] }),
+    }));
+  });
+
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("reloadPreview increments previewKey on each call", () => {
@@ -253,6 +261,29 @@ describe("WorkspaceContext", () => {
     const terminalLogs = screen.getByTestId("terminal-logs").textContent ?? "";
     const occurrences = terminalLogs.split("$ tool str_replace_editor").length - 1;
     expect(occurrences).toBe(1);
+  });
+
+  it("loads persisted terminal logs for the latest run when the project changes", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        entries: [
+          { content: "$ [system] run started" },
+          { content: "> Editing src/App.tsx" },
+        ],
+      }),
+    }));
+
+    render(
+      <WorkspaceProvider>
+        <WorkspaceConsumer projectId={1} />
+      </WorkspaceProvider>
+    );
+
+    await screen.findByText((_content, node) =>
+      node?.getAttribute("data-testid") === "terminal-logs" &&
+      (node.textContent ?? "").includes("$ [system] run started | > Editing src/App.tsx")
+    );
   });
 
   it("stores task summaries from task_store.summary events", () => {

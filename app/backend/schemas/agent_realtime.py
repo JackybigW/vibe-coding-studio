@@ -30,3 +30,19 @@ class AgentSessionStatePayload(BaseModel):
 class AgentRealtimeErrorPayload(BaseModel):
     type: Literal["error"] = "error"
     code: Literal["invalid_ticket"] = "invalid_ticket"
+
+
+class AgentRunLogEntryPayload(BaseModel):
+    run_id: str
+    seq: int
+    kind: Literal["system", "progress", "terminal", "error"]
+    content: str
+    created_at: datetime
+
+
+class AgentLatestRunLogsResponse(BaseModel):
+    run_id: str
+    status: str
+    started_at: datetime | None = None
+    updated_at: datetime | None = None
+    entries: list[AgentRunLogEntryPayload] = Field(default_factory=list)

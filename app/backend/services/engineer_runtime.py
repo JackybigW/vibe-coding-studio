@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable
 from openmanus_runtime.streaming import StreamingSWEAgent, build_agent_llm
 from openmanus_runtime.tool.bash import ContainerBashSession
 from openmanus_runtime.tool.file_operators import ProjectFileOperator
+from services.agent_run_logs import AgentRunLogStore
 from services.messages import MessagesService
 from services.preview_contract import load_preview_contract
 from services.preview_sessions import build_preview_urls, new_preview_session_fields
@@ -73,15 +74,37 @@ async def run_engineer_session(
 
     try:
         logger.info("%s run_engineer_session started", prefix)
-        workspace_events = WorkspaceEventEmitter(event_sink)
+        run_logs = AgentRunLogStore(base_root=_WORKSPACES_ROOT)
+        recorder = run_logs.start_run(user_id=user_id, project_id=project_id)
+
+        async def traced_event_sink(event: dict[str, Any]) -> None:
+            event_type = str(event.get("type") or "")
+            if event_type == "progress":
+                recorder.progress(str(event.get("label") or ""))
+            elif event_type == "terminal.log":
+                terminal_content = str(event.get("content") or "")
+                if not terminal_content.startswith("$ [system] "):
+                    recorder.terminal(terminal_content)
+            elif event_type == "error":
+                recorder.error(str(event.get("error") or event.get("message") or "Unknown error"))
+            await event_sink(event)
+
+        async def log_step(message: str) -> None:
+            logger.info("%s %s", prefix, message)
+            recorder.system(message)
+            await traced_event_sink({"type": "terminal.log", "content": f"$ [system] {message}"})
+
+        workspace_events = WorkspaceEventEmitter(traced_event_sink)
+        await log_step("run started")
 
         if stop_event is not None and stop_event.is_set():
             logger.info("%s run_engineer_session skipped because stop_event already set", prefix)
+            recorder.set_status("stopped")
             return False
 
         workspace_service = workspace_service_factory()
         paths = workspace_service.resolve_paths(user_id=user_id, project_id=project_id)
-        logger.info("%s workspace resolved host_root=%s", prefix, paths.host_root)
+        await log_step(f"workspace resolved host_root={paths.host_root}")
 
         files_service = Project_filesService(db)
         files_result = await files_service.get_list(
@@ -99,11 +122,15 @@ async def run_engineer_session(
             for record in files_result["items"]
         ]
         workspace_service.materialize_files(paths.host_root, file_records)
-        logger.info("%s materialized %s project files", prefix, len(file_records))
+        await log_step(f"materialized {len(file_records)} project files")
 
         from services.agent_bootstrap import classify_user_request_async
 
         bootstrap_ctx = await classify_user_request_async(prompt)
+        await log_step(
+            "request classified "
+            f"mode={bootstrap_ctx.mode} requires_draft_plan={bootstrap_ctx.requires_draft_plan}"
+        )
 
         messages_service = MessagesService(db)
         message_history_result = await messages_service.get_list(
@@ -129,18 +156,36 @@ async def run_engineer_session(
             len(persisted_history),
             json.dumps(persisted_history, ensure_ascii=False),
         )
+        await log_step(f"loaded {len(persisted_history)} persisted messages")
+
+        if bootstrap_ctx.mode == "conversation":
+            await log_step("conversation request detected; skipping sandbox startup")
+            await traced_event_sink(
+                {
+                    "type": "assistant",
+                    "agent": "engineer",
+                    "content": (
+                        "This doesn't look like an implementation request yet. "
+                        "Tell me what you want me to build, change, or fix, and I'll draft a plan before editing files."
+                    ),
+                }
+            )
+            recorder.set_status("completed")
+            return True
 
         sandbox_service = sandbox_service_factory()
         try:
+            await log_step("ensuring sandbox runtime")
             container_name = await sandbox_service.ensure_runtime(
                 user_id=user_id,
                 project_id=project_id,
                 host_root=paths.host_root,
             )
-            logger.info("%s sandbox ready container=%s", prefix, container_name)
+            await log_step(f"sandbox ready container={container_name}")
         except Exception as exc:
             logger.exception("%s sandbox startup failed", prefix)
-            await event_sink({"type": "error", "status": "failure", "error": f"Could not start sandbox: {exc}"})
+            recorder.set_status("failed")
+            await traced_event_sink({"type": "error", "status": "failure", "error": f"Could not start sandbox: {exc}"})
             return False
 
         from services.approval_gate import ApprovalGate
@@ -160,7 +205,7 @@ async def run_engineer_session(
         logger.info("%s llm constructed model=%s", prefix, model)
         agent = agent_cls.build_for_workspace(
             llm=llm,
-            event_emitter=event_sink,
+            event_emitter=traced_event_sink,
             file_operator=file_operator,
             bash_session=bash_session,
         )
@@ -174,7 +219,7 @@ async def run_engineer_session(
 
         draft_plan_service = get_agent_draft_plan_service()
         draft_plan_tool = DraftPlanTool.create(
-            event_sink=event_sink,
+            event_sink=traced_event_sink,
             service=draft_plan_service,
             project_id=project_id,
             approval_gate=gate,
@@ -182,7 +227,7 @@ async def run_engineer_session(
         load_skill_tool = LoadSkillTool.create(loader=_skill_loader)
         todo_write_tool = TodoWriteTool.create(
             file_operator=file_operator,
-            event_sink=event_sink,
+            event_sink=traced_event_sink,
             task_store_factory=lambda: AgentTaskStore(db),
             project_id=project_id,
             approval_gate=gate,
@@ -192,7 +237,7 @@ async def run_engineer_session(
             agent.available_tools.add_tool(load_skill_tool)
             agent.available_tools.add_tool(todo_write_tool)
 
-        await event_sink(
+        await traced_event_sink(
             {
                 "type": "session",
                 "agent": agent.name,
@@ -211,7 +256,7 @@ async def run_engineer_session(
                         "## Backend README (mandatory reading before implementing backend features)\n\n"
                         f"{readme_content}\n\n---\n\n"
                     )
-                    logger.info("%s injected backend README chars=%d", prefix, len(readme_content))
+                    await log_step(f"injected backend README chars={len(readme_content)}")
             except OSError:
                 logger.debug("%s backend README not found at %s", prefix, readme_path)
 
@@ -251,12 +296,13 @@ async def run_engineer_session(
                 f"User request:\n{prompt}",
                 f"Available skills (use load_skill tool to get full content):\n{skill_summary}\n\nUser request:\n{prompt}",
             )
-        logger.info("%s agent.run started", prefix)
+        await log_step("agent run started")
         result = await agent.run(task_prompt)
-        logger.info("%s agent.run completed", prefix)
+        await log_step("agent run completed")
 
         if stop_event is not None and stop_event.is_set():
             logger.info("%s run_engineer_session stopped after agent.run", prefix)
+            recorder.set_status("stopped")
             return False
 
         if history_serializer is not None:
@@ -270,7 +316,7 @@ async def run_engineer_session(
         try:
             snapshot = workspace_service.snapshot_files(paths.host_root)
             changed_paths: list[str] = []
-            logger.info("%s snapshot captured files=%s", prefix, len(snapshot))
+            await log_step(f"snapshot captured files={len(snapshot)}")
 
             for rel_path, file_info in snapshot.items():
                 file_name = Path(rel_path).name
@@ -303,13 +349,15 @@ async def run_engineer_session(
                     )
                     changed_paths.append(rel_path)
 
-            await event_sink({"type": "workspace_sync", "changed_files": changed_paths})
-            logger.info("%s workspace sync updated_files=%s", prefix, len(changed_paths))
+            await traced_event_sink({"type": "workspace_sync", "changed_files": changed_paths})
+            await log_step(f"workspace sync updated_files={len(changed_paths)}")
         except Exception as sync_exc:
             logger.warning("%s workspace sync failed: %s", prefix, sync_exc)
+            recorder.error(f"workspace sync failed: {sync_exc}")
 
         if stop_event is not None and stop_event.is_set():
             logger.info("%s run_engineer_session stopped before preview startup", prefix)
+            recorder.set_status("stopped")
             return False
 
         try:
@@ -332,7 +380,7 @@ async def run_engineer_session(
                 "VITE_ATOMS_PREVIEW_BACKEND_BASE": preview_urls["preview_backend_url"],
             }
 
-            logger.info("%s starting preview services", prefix)
+            await log_step("starting preview services")
             returncode, _, stderr = await sandbox_service.start_preview_services(container_name, env=preview_env)
             if returncode != 0:
                 stderr_tail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
@@ -342,7 +390,8 @@ async def run_engineer_session(
                     returncode,
                     stderr_tail,
                 )
-                await event_sink(
+                recorder.error(f"preview start failed returncode={returncode} stderr={stderr_tail}")
+                await traced_event_sink(
                     {
                         "type": "preview_failed",
                         "reason": "start_preview_failed",
@@ -362,10 +411,14 @@ async def run_engineer_session(
                     backend_port,
                     preview_port,
                 )
+                await log_step(
+                    f"runtime ports frontend={frontend_port} backend={backend_port} preview={preview_port}"
+                )
 
                 if not frontend_port:
                     logger.warning("%s preview failed no frontend port", prefix)
-                    await event_sink({"type": "preview_failed", "reason": "no_frontend_port"})
+                    recorder.error("preview failed no_frontend_port")
+                    await traced_event_sink({"type": "preview_failed", "reason": "no_frontend_port"})
                 else:
                     contract = preview_contract_loader(paths.host_root)
                     frontend_health_path = contract.frontend.healthcheck_path if contract else "/"
@@ -373,7 +426,7 @@ async def run_engineer_session(
                         contract.backend.healthcheck_path if contract and contract.backend else "/health"
                     )
 
-                    logger.info("%s waiting for frontend service path=%s", prefix, frontend_health_path)
+                    await log_step(f"waiting for frontend service path={frontend_health_path}")
                     frontend_ready = await sandbox_service.wait_for_service(
                         container_name=container_name,
                         port=3000,
@@ -381,11 +434,11 @@ async def run_engineer_session(
                         timeout_seconds=60.0,
                         poll_interval_seconds=1.0,
                     )
-                    logger.info("%s frontend wait completed ready=%s", prefix, frontend_ready)
+                    await log_step(f"frontend wait completed ready={frontend_ready}")
 
                     backend_ready = False
                     if contract and contract.backend:
-                        logger.info("%s waiting for backend service path=%s", prefix, backend_health_path)
+                        await log_step(f"waiting for backend service path={backend_health_path}")
                         backend_ready = await sandbox_service.wait_for_service(
                             container_name=container_name,
                             port=8000,
@@ -393,10 +446,11 @@ async def run_engineer_session(
                             timeout_seconds=60.0,
                             poll_interval_seconds=1.0,
                         )
-                        logger.info("%s backend wait completed ready=%s", prefix, backend_ready)
+                        await log_step(f"backend wait completed ready={backend_ready}")
 
                     if not frontend_ready:
-                        await event_sink({"type": "preview_failed", "reason": "timeout"})
+                        recorder.error("preview failed timeout")
+                        await traced_event_sink({"type": "preview_failed", "reason": "timeout"})
                     else:
                         backend_status = "not_configured"
                         if contract and contract.backend:
@@ -416,8 +470,8 @@ async def run_engineer_session(
                                 "backend_status": backend_status,
                             }
                         )
-                        logger.info("%s preview ready session_key=%s", prefix, session.preview_session_key)
-                        await event_sink(
+                        await log_step(f"preview ready session_key={session.preview_session_key}")
+                        await traced_event_sink(
                             {
                                 "type": "preview_ready",
                                 "preview_session_key": session.preview_session_key,
@@ -434,7 +488,8 @@ async def run_engineer_session(
                         )
         except Exception as preview_exc:
             logger.exception("%s preview startup failed", prefix)
-            await event_sink(
+            recorder.error(f"preview startup failed: {preview_exc}")
+            await traced_event_sink(
                 {
                     "type": "preview_failed",
                     "reason": "exception",
@@ -442,7 +497,9 @@ async def run_engineer_session(
                 }
             )
 
-        await event_sink(
+        recorder.set_status("completed")
+        await log_step("run completed")
+        await traced_event_sink(
             {
                 "type": "done",
                 "agent": agent.name,
@@ -454,5 +511,10 @@ async def run_engineer_session(
         return True
     except Exception as exc:
         logger.exception("%s run_engineer_session failed", prefix)
+        try:
+            recorder.error(str(exc))
+            recorder.set_status("failed")
+        except Exception:
+            logger.debug("%s failed to record run error", prefix)
         await event_sink({"type": "error", "status": "failure", "error": str(exc)})
         return False
