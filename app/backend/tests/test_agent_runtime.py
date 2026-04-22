@@ -642,6 +642,52 @@ def test_agent_prompt_includes_skill_metadata(monkeypatch):
     assert "custom_api" in captured_prompt["value"]
 
 
+@pytest.mark.asyncio
+async def test_todo_write_tool_writes_docs_todo_md(tmp_path):
+    from openmanus_runtime.tool.todo_write import TodoWriteTool
+
+    events = []
+    host_root = tmp_path / "workspace"
+    host_root.mkdir()
+
+    from openmanus_runtime.tool.file_operators import ProjectFileOperator
+    from pathlib import Path
+    operator = ProjectFileOperator(host_root=host_root, container_root=Path("/workspace"))
+
+    tool = TodoWriteTool.create(file_operator=operator, event_sink=events.append)
+
+    result = await tool.execute(items=[
+        {"id": "1", "text": "Create homepage", "status": "pending"},
+        {"id": "2", "text": "Add auth flow", "status": "in_progress"},
+    ])
+
+    assert (host_root / "docs" / "todo.md").exists()
+    content = (host_root / "docs" / "todo.md").read_text()
+    assert "Create homepage" in content
+    assert "Add auth flow" in content
+    assert any(e.get("type") == "todo.updated" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_todo_write_tool_rejects_multiple_in_progress(tmp_path):
+    from openmanus_runtime.tool.todo_write import TodoWriteTool
+    from openmanus_runtime.exceptions import ToolError
+
+    host_root = tmp_path / "workspace"
+    host_root.mkdir()
+    from openmanus_runtime.tool.file_operators import ProjectFileOperator
+    from pathlib import Path
+    operator = ProjectFileOperator(host_root=host_root, container_root=Path("/workspace"))
+
+    tool = TodoWriteTool.create(file_operator=operator, event_sink=lambda e: None)
+
+    with pytest.raises(ToolError):
+        await tool.execute(items=[
+            {"id": "1", "text": "Task A", "status": "in_progress"},
+            {"id": "2", "text": "Task B", "status": "in_progress"},
+        ])
+
+
 def test_agent_run_marks_backend_not_configured_without_preview_manifest(monkeypatch):
     _FIXED_SESSION_KEY = "preview-session-123"
 

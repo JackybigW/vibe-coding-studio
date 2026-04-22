@@ -42,10 +42,12 @@ class StreamingSWEAgent(SWEAgent):
                 )
 
             if message.tool_calls:
+                _SILENT_TOOLS = frozenset({"draft_plan", "todo_write", "load_skill"})
                 for tool_call in message.tool_calls:
                     if workspace_events is not None:
-                        await workspace_events.progress(f"Running {tool_call.function.name}")
-                        await workspace_events.terminal_log(f"$ tool {tool_call.function.name}")
+                        if tool_call.function.name not in _SILENT_TOOLS:
+                            await workspace_events.progress(f"Running {tool_call.function.name}")
+                            await workspace_events.terminal_log(f"$ tool {tool_call.function.name}")
 
         if not should_act:
             return "Thinking complete - no action needed"
