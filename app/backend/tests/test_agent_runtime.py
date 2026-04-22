@@ -840,3 +840,27 @@ def test_run_engineer_session_readme_missing_does_not_fail(tmp_path):
 
     assert "Backend README" not in task_prompt
     assert "You must work inside this workspace root" in task_prompt
+
+
+def test_task_prompt_contains_orchestration_workflow_instructions(monkeypatch):
+    """task_prompt must contain the orchestration workflow section so the agent writes the plan file."""
+    captured_prompt = {}
+
+    class FakeAgent(PromptCapturingAgent):
+        async def run(self, request: str):
+            captured_prompt["value"] = request
+            return await super().run(request)
+
+    monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", FakeAgent)
+    monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
+    monkeypatch.setattr("routers.agent_runtime._get_workspace_service", lambda: _FakeWorkspaceService())
+    monkeypatch.setattr("routers.agent_runtime._get_sandbox_service", lambda: _FakeSandboxService())
+
+    response = _post_agent_run(monkeypatch)
+
+    assert response.status_code == 200
+    prompt_value = captured_prompt["value"]
+    assert "Orchestration Workflow" in prompt_value
+    assert "draft_plan" in prompt_value
+    assert "docs/plans/" in prompt_value
+    assert "todo_write" in prompt_value

@@ -231,6 +231,16 @@ async def run_engineer_session(
             "environment variable in the frontend so it can reach the backend.\n"
             "Do not start the preview services yourself; focus on writing code and "
             "one-off verification commands.\n\n"
+            "## Orchestration Workflow\n\n"
+            "For implementation requests:\n"
+            "1. Call `draft_plan` ALONE with a short numbered list (3-7 items) — wait for user approval\n"
+            "2. After approval, write a detailed implementation plan to "
+            "`docs/plans/{YYYY-MM-DD}-{feature-slug}.md` using str_replace_editor. "
+            "This plan must expand each approved item into concrete steps with specific file paths, "
+            "what to create/modify, and execution order.\n"
+            "3. Call `todo_write` with the implementation checklist (max 8 items, one in_progress at a time)\n"
+            "4. Implement the plan step by step\n"
+            "5. Run verification commands when done\n\n"
             f"User request:\n{prompt}"
         )
         skill_listing = _skill_loader.describe_available()
@@ -243,25 +253,6 @@ async def run_engineer_session(
         logger.info("%s agent.run started", prefix)
         result = await agent.run(task_prompt)
         logger.info("%s agent.run completed", prefix)
-
-        # Write plan artifact if there was an approved draft plan for this project
-        try:
-            from datetime import date
-            for (pid, rkey), state in list(draft_plan_service._plans.items()):
-                if pid == project_id and state.approved:
-                    plan_dir = paths.host_root / "docs" / "plans"
-                    plan_dir.mkdir(parents=True, exist_ok=True)
-                    slug = "".join(c if c.isalnum() or c == "-" else "-" for c in rkey.lower())[:30].strip("-") or "feature"
-                    plan_path = plan_dir / f"{date.today().isoformat()}-{slug}.md"
-                    items_text = "\n".join(f"- {item.get('text', '')}" for item in state.items)
-                    plan_path.write_text(
-                        f"# Implementation Plan\n\n## Steps\n\n{items_text}\n",
-                        encoding="utf-8",
-                    )
-                    logger.info("%s plan artifact written path=%s", prefix, plan_path)
-                    break
-        except Exception as plan_exc:
-            logger.warning("%s plan artifact write failed: %s", prefix, plan_exc)
 
         if stop_event is not None and stop_event.is_set():
             logger.info("%s run_engineer_session stopped after agent.run", prefix)
