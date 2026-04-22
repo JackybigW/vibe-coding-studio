@@ -238,6 +238,13 @@ class ContainerBash(Bash):
         tool._container_session = ContainerBashSession(runtime_service, container_name, approval_gate=approval_gate)
         return tool
 
+    @classmethod
+    def with_existing_session(cls, session: ContainerBashSession) -> "ContainerBash":
+        """Wrap an existing ContainerBashSession so executed_commands tracking is shared."""
+        tool = cls()
+        tool._container_session = session
+        return tool
+
     async def execute(
         self, command: str | None = None, restart: bool = False, **kwargs
     ) -> CLIResult:

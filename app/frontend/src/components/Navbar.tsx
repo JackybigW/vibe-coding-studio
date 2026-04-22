@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,7 +15,8 @@ export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const { user, isLoading, isAuthenticated, login, logout } = useAuth();
+  const { user, isLoading, isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -219,13 +220,13 @@ export default function Navbar() {
               <Button
                 variant="ghost"
                 className="text-[#A1A1AA] hover:text-white hover:bg-[#27272A]"
-                onClick={login}
+                onClick={() => navigate("/login")}
               >
                 Log in
               </Button>
               <Button
                 className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white hover:opacity-90 border-0"
-                onClick={login}
+                onClick={() => navigate("/register")}
               >
                 Sign up
               </Button>
@@ -328,19 +329,13 @@ export default function Navbar() {
               <Button
                 variant="ghost"
                 className="text-[#A1A1AA] hover:text-white hover:bg-[#27272A] flex-1"
-                onClick={() => {
-                  setMobileOpen(false);
-                  login();
-                }}
+                onClick={() => { setMobileOpen(false); navigate("/login"); }}
               >
                 Log in
               </Button>
               <Button
                 className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white flex-1"
-                onClick={() => {
-                  setMobileOpen(false);
-                  login();
-                }}
+                onClick={() => { setMobileOpen(false); navigate("/register"); }}
               >
                 Sign up
               </Button>

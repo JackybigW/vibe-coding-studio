@@ -21,10 +21,12 @@ class SandboxRuntimeService:
         project_root: Path,
         run_command: Optional[RunCommand] = None,
         command_timeout_seconds: float = 30.0,
+        exec_timeout_seconds: float = 180.0,
     ):
         self.project_root = Path(project_root).resolve()
         self.run_command = run_command or self._run_command
         self.command_timeout_seconds = command_timeout_seconds
+        self.exec_timeout_seconds = exec_timeout_seconds
 
     async def ensure_runtime(
         self,
@@ -156,7 +158,15 @@ class SandboxRuntimeService:
         for key, value in (env or {}).items():
             docker_command.extend(["-e", f"{key}={value}"])
         docker_command.extend([container_name, "/bin/bash", "-lc", command])
-        return await self._invoke(*docker_command)
+        try:
+            return await asyncio.wait_for(
+                self.run_command(*docker_command),
+                timeout=self.exec_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"command timed out after {self.exec_timeout_seconds}s: {' '.join(docker_command)}"
+            ) from exc
 
     async def start_preview_services(
         self,

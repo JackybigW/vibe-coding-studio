@@ -16,6 +16,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: () => Promise<void>;
+  loginWithPassword: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -25,6 +26,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   isAuthenticated: false,
   login: async () => {},
+  loginWithPassword: async () => {},
   logout: async () => {},
   refreshProfile: async () => {},
 });
@@ -51,6 +53,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkAuth = useCallback(async () => {
     try {
+      const storedToken = localStorage.getItem("token");
+
+      if (storedToken) {
+        // Try JWT-based auth (email/password login)
+        const meRes = await client.apiCall.invoke({
+          url: "/api/v1/auth/me",
+          method: "GET",
+          data: {},
+          headers: { Authorization: `Bearer ${storedToken}` },
+        });
+        if (meRes?.data && !meRes.data.detail) {
+          const authData = meRes.data;
+          const profile = await fetchProfile();
+          setUser({
+            id: profile?.id ?? 0,
+            user_id: authData.id || authData.user_id || "",
+            display_name: profile?.display_name || authData.name || authData.email?.split("@")[0] || "User",
+            avatar_url: profile?.avatar_url || "",
+            credits: profile?.credits ?? 25,
+            plan: profile?.plan || "free",
+            email: authData.email,
+          });
+          return;
+        } else {
+          // Token invalid/expired — clean it up
+          localStorage.removeItem("token");
+        }
+      }
+
+      // Fall back to OIDC session
       const authRes = await client.auth.me();
       if (authRes?.data) {
         const profile = await fetchProfile();
@@ -60,7 +92,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             email: authRes.data.email,
           });
         } else {
-          // Fallback: user is authenticated but no profile yet
           setUser({
             id: 0,
             user_id: authRes.data.id || "",
@@ -89,7 +120,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await client.auth.toLogin();
   };
 
+  const loginWithPassword = async (email: string, password: string) => {
+    const res = await client.apiCall.invoke({
+      url: "/api/v1/auth/login/password",
+      method: "POST",
+      data: { email, password },
+    });
+    const data = res?.data;
+    if (data?.detail) throw new Error(data.detail);
+    if (!data?.token) throw new Error("Sign in failed");
+    localStorage.setItem("token", data.token);
+    await checkAuth();
+  };
+
   const logout = async () => {
+    localStorage.removeItem("token");
     await client.auth.logout();
     setUser(null);
   };
@@ -108,6 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         login,
+        loginWithPassword,
         logout,
         refreshProfile,
       }}

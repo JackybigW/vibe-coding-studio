@@ -47,7 +47,7 @@ interface Project {
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { user, isAuthenticated, isLoading: authLoading, login } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -163,28 +163,8 @@ export default function DashboardPage() {
   }
 
   if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-[#09090B] text-white">
-        <Navbar />
-        <div className="flex flex-col items-center justify-center min-h-[80vh] px-6">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#7C3AED]/20 to-[#A855F7]/20 flex items-center justify-center mb-6">
-            <Sparkles className="w-10 h-10 text-[#A855F7]" />
-          </div>
-          <h1 className="text-3xl font-bold mb-3">Welcome to Atoms</h1>
-          <p className="text-[#A1A1AA] text-center max-w-md mb-8">
-            Sign in to create projects, collaborate with AI agents, and deploy
-            your applications.
-          </p>
-          <Button
-            size="lg"
-            className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white hover:opacity-90 border-0 px-8"
-            onClick={login}
-          >
-            Sign in to get started
-          </Button>
-        </div>
-      </div>
-    );
+    navigate("/login");
+    return null;
   }
 
   return (

@@ -18,14 +18,15 @@ from core.config import settings
 from core.database import get_db
 from dependencies.auth import get_current_user
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from models.auth import User
+from pydantic import BaseModel, EmailStr
 from schemas.auth import (
     PlatformTokenExchangeRequest,
     TokenExchangeResponse,
     UserResponse,
 )
-from services.auth import AuthService
+from services.auth import AuthError, AuthService
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
@@ -332,3 +333,128 @@ async def logout():
     """Logout user."""
     logout_url = build_logout_url()
     return {"redirect_url": logout_url}
+
+
+# =========================================================================== #
+# Email / password auth endpoints                                              #
+# =========================================================================== #
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+def _auth_error_response(exc: AuthError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+
+@router.post("/register", status_code=201)
+async def register(
+    payload: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Register a new user with email and password."""
+    if len(payload.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    auth_service = AuthService(db)
+    try:
+        await auth_service.register_with_password(
+            email=payload.email,
+            password=payload.password,
+            name=payload.name,
+        )
+    except AuthError as exc:
+        return _auth_error_response(exc)
+    return {"message": "Account created. Please check your email to verify your address."}
+
+
+@router.post("/login/password")
+async def login_with_password(
+    payload: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign in with email and password, returns JWT."""
+    auth_service = AuthService(db)
+    try:
+        token, expires_at, _ = await auth_service.login_with_password(payload.email, payload.password)
+    except AuthError as exc:
+        return _auth_error_response(exc)
+    return {
+        "token": token,
+        "expires_at": int(expires_at.timestamp()),
+        "token_type": "Bearer",
+    }
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+@router.post("/verify-email", status_code=200)
+async def verify_email(
+    payload: VerifyEmailRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify email address via token."""
+    auth_service = AuthService(db)
+    try:
+        await auth_service.verify_email(payload.token)
+        return {"message": "Email verified successfully"}
+    except AuthError as exc:
+        return _auth_error_response(exc)
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+@router.post("/resend-verification", status_code=200)
+async def resend_verification(
+    payload: ResendVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Resend verification email."""
+    auth_service = AuthService(db)
+    await auth_service.resend_verification_email(payload.email)
+    return {"message": "If the email is registered and unverified, a new link has been sent."}
+
+
+@router.post("/forgot-password", status_code=200)
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send password reset email (always returns 200 to prevent email enumeration)."""
+    auth_service = AuthService(db)
+    await auth_service.forgot_password(payload.email)
+    return {"message": "If that email is registered, a reset link has been sent."}
+
+
+@router.post("/reset-password", status_code=200)
+async def reset_password(
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Apply new password using a reset token."""
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    auth_service = AuthService(db)
+    try:
+        await auth_service.reset_password(payload.token, payload.new_password)
+    except AuthError as exc:
+        return _auth_error_response(exc)
+    return {"message": "Password updated. You can now sign in with your new password."}
+

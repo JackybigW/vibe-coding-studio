@@ -99,9 +99,7 @@ class StreamingSWEAgent(SWEAgent):
         editor = StrReplaceEditor.with_operator(file_operator)
 
         if bash_session is not None:
-            bash_tool = ContainerBash.with_session(
-                bash_session.runtime_service, bash_session.container_name
-            )
+            bash_tool = ContainerBash.with_existing_session(bash_session)
         else:
             bash_tool = Bash()
 
