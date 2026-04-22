@@ -1,8 +1,15 @@
 import pytest
+import pytest_asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from routers.workspace_runtime import router
+from core.database import Base, get_db
+from dependencies.auth import get_current_user
+from routers.workspace_runtime import ensure_runtime_for_project, router
 from schemas.auth import UserResponse
 
 
@@ -49,10 +56,18 @@ class _FakeResult:
         return self._items
 
 
-def _make_client() -> TestClient:
-    from dependencies.auth import get_current_user
-    from core.database import get_db
+class _FakeSession:
+    status = "running"
+    container_name = "atoms-user-1-42"
+    frontend_port = 3000
+    backend_port = 8000
+    preview_session_key = "preview-session-123"
+    preview_expires_at = None
+    frontend_status = "running"
+    backend_status = "starting"
 
+
+def _make_client() -> TestClient:
     app = FastAPI()
     app.include_router(router)
 
@@ -71,34 +86,6 @@ def _make_client() -> TestClient:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
-def test_ensure_workspace_runtime_returns_preview_url(monkeypatch):
-    async def _fake_ensure(*args, **kwargs):
-        return _FakeSession()
-
-    monkeypatch.setattr(
-        "routers.workspace_runtime.ensure_runtime_for_project",
-        _fake_ensure,
-    )
-
-    # Mock ProjectsService.get_by_id to simulate ownership check passing
-    from services import projects as projects_module
-
-    class _FakeProject:
-        id = 42
-        user_id = "user-1"
-
-    async def _fake_get_by_id(self, obj_id, user_id=None):
-        return _FakeProject()
-
-    monkeypatch.setattr(projects_module.ProjectsService, "get_by_id", _fake_get_by_id)
-
-    client = _make_client()
-    response = client.post("/api/v1/workspace-runtime/projects/42/ensure")
-    assert response.status_code == 200
-    assert response.json()["preview_frontend_url"].endswith("/frontend/")
-    assert response.json()["preview_backend_url"].endswith("/backend/")
-
 
 def test_preview_proxy_requires_running_session():
     client = _make_client()
@@ -133,17 +120,6 @@ def test_ensure_workspace_runtime_returns_preview_bundle(monkeypatch):
     assert payload["preview_backend_url"] == "/preview/preview-session-123/backend/"
     assert payload["frontend_status"] == "running"
     assert payload["backend_status"] == "starting"
-
-
-import pytest
-import pytest_asyncio
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-from core.database import Base
-from routers.workspace_runtime import ensure_runtime_for_project
-from services.workspace_runtime_sessions import WorkspaceRuntimeSessionsService
 
 
 @pytest_asyncio.fixture
@@ -186,7 +162,7 @@ async def test_ensure_runtime_calls_start_preview_services(memory_db):
 
     start_preview_mock.assert_called_once()
     call_kwargs = start_preview_mock.call_args
-    env = call_kwargs.kwargs.get("env") or call_kwargs.args[1]
+    env = call_kwargs.kwargs["env"]
     assert "ATOMS_PREVIEW_FRONTEND_BASE" in env
     assert "/preview/" in env["ATOMS_PREVIEW_FRONTEND_BASE"]
     assert env["ATOMS_PREVIEW_FRONTEND_BASE"].endswith("/frontend/")
@@ -216,18 +192,3 @@ async def test_ensure_runtime_embeds_preview_session_key_in_session(memory_db):
 
     assert session.preview_session_key is not None
     assert len(session.preview_session_key) > 10
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-class _FakeSession:
-    status = "running"
-    container_name = "atoms-user-1-42"
-    frontend_port = 3000
-    backend_port = 8000
-    preview_session_key = "preview-session-123"
-    preview_expires_at = None
-    frontend_status = "running"
-    backend_status = "starting"

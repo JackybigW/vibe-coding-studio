@@ -74,6 +74,8 @@ async def ensure_runtime_for_project(
     preview_env = {
         "ATOMS_PREVIEW_FRONTEND_BASE": preview_urls["preview_frontend_url"],
         "ATOMS_PREVIEW_BACKEND_BASE": preview_urls["preview_backend_url"],
+        "VITE_ATOMS_PREVIEW_FRONTEND_BASE": preview_urls["preview_frontend_url"],
+        "VITE_ATOMS_PREVIEW_BACKEND_BASE": preview_urls["preview_backend_url"],
     }
     await sandbox_service.start_preview_services(container_name, env=preview_env)
 
@@ -136,6 +138,13 @@ async def ensure_workspace_runtime(
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+    if not session.preview_session_key:
+        new_fields = new_preview_session_fields()
+        for key, value in new_fields.items():
+            setattr(session, key, value)
+        await db.commit()
+        await db.refresh(session)
 
     preview_urls = build_preview_urls(session.preview_session_key)
 
