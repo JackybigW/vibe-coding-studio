@@ -162,6 +162,7 @@ async def run_engineer_session(
         from openmanus_runtime.tool.load_skill import LoadSkillTool
         from openmanus_runtime.tool.todo_write import TodoWriteTool
         from services.agent_draft_plan import get_agent_draft_plan_service
+        from services.agent_task_store import AgentTaskStore
 
         draft_plan_service = get_agent_draft_plan_service()
         draft_plan_tool = DraftPlanTool.create(
@@ -173,6 +174,9 @@ async def run_engineer_session(
         todo_write_tool = TodoWriteTool.create(
             file_operator=file_operator,
             event_sink=event_sink,
+            task_store_factory=lambda: AgentTaskStore(db),
+            project_id=project_id,
+            request_key=f"project-{project_id}",
         )
         if hasattr(agent, "available_tools") and agent.available_tools is not None:
             agent.available_tools.add_tool(draft_plan_tool)

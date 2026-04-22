@@ -19,6 +19,7 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
     progressItems,
     terminalLogs,
     addTerminalLog,
+    taskSummaries,
   } = useWorkspace();
 
   useEffect(() => {
@@ -33,6 +34,8 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
       <div data-testid="session-status">{sessionStatus}</div>
       <div data-testid="progress-items">{progressItems.join(" | ")}</div>
       <div data-testid="terminal-logs">{terminalLogs.join(" | ")}</div>
+      <div data-testid="task-summaries-count">{taskSummaries.length}</div>
+      <div data-testid="task-summaries-subjects">{taskSummaries.map((t) => t.subject).join(" | ")}</div>
       <button onClick={reloadPreview} type="button">
         Reload preview
       </button>
@@ -99,6 +102,20 @@ function WorkspaceConsumer({ projectId }: { projectId: number | null }) {
         type="button"
       >
         Set preview URL
+      </button>
+      <button
+        onClick={() =>
+          applyRealtimeEvent({
+            type: "task_store.summary",
+            tasks: [
+              { id: 1, subject: "Build UI", status: "in_progress", blocked_by: [] },
+              { id: 2, subject: "Add tests", status: "pending", blocked_by: [] },
+            ],
+          })
+        }
+        type="button"
+      >
+        Apply task store summary
       </button>
     </div>
   );
@@ -236,5 +253,22 @@ describe("WorkspaceContext", () => {
     const terminalLogs = screen.getByTestId("terminal-logs").textContent ?? "";
     const occurrences = terminalLogs.split("$ tool str_replace_editor").length - 1;
     expect(occurrences).toBe(1);
+  });
+
+  it("stores task summaries from task_store.summary events", () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceConsumer projectId={1} />
+      </WorkspaceProvider>
+    );
+
+    expect(screen.getByTestId("task-summaries-count")).toHaveTextContent("0");
+
+    act(() => {
+      screen.getByRole("button", { name: "Apply task store summary" }).click();
+    });
+
+    expect(screen.getByTestId("task-summaries-count")).toHaveTextContent("2");
+    expect(screen.getByTestId("task-summaries-subjects")).toHaveTextContent("Build UI | Add tests");
   });
 });

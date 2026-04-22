@@ -38,6 +38,8 @@ interface WorkspaceContextType {
   applyRealtimeEvent: (event: AgentRealtimeEvent) => void;
   fileVersion: number;
   reloadFiles: () => Promise<void>;
+  taskSummaries: Array<{ id: number; subject: string; status: string; blocked_by: string[] }>;
+  setTaskSummaries: React.Dispatch<React.SetStateAction<Array<{ id: number; subject: string; status: string; blocked_by: string[] }>>>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType>({
@@ -63,6 +65,8 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   applyRealtimeEvent: () => {},
   fileVersion: 0,
   reloadFiles: async () => {},
+  taskSummaries: [],
+  setTaskSummaries: () => {},
 });
 
 function getLanguageFromPath(filePath: string): string {
@@ -161,6 +165,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [sessionStatus, setSessionStatus] = useState("idle");
   const [progressItems, setProgressItems] = useState<string[]>([]);
   const [fileVersion, setFileVersion] = useState(0);
+  const [taskSummaries, setTaskSummaries] = useState<Array<{ id: number; subject: string; status: string; blocked_by: string[] }>>([]);
   const projectIdRef = useRef<number | null>(null);
   const reloadingRef = useRef(false);
 
@@ -312,6 +317,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (event.type === "run.stopped") {
       setSessionStatus("stopped");
       setProgressItems([]);
+      return;
+    }
+
+    if (event.type === "task_store.summary") {
+      setTaskSummaries(event.tasks);
+      return;
     }
   }, [addTerminalLog, applyFileSnapshot, reloadFiles]);
 
@@ -426,6 +437,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         applyRealtimeEvent,
         fileVersion,
         reloadFiles,
+        taskSummaries,
+        setTaskSummaries,
       }}
     >
       {children}

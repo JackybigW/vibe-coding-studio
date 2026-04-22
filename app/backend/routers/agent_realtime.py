@@ -96,6 +96,8 @@ async def agent_session_websocket(websocket: WebSocket, db: AsyncSession = Depen
             "preview_failed",
             "draft_plan.pending",
             "draft_plan.approved",
+            "task_store.summary",
+            "todo.updated",
         }:
             await websocket.send_json(event)
 

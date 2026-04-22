@@ -54,6 +54,27 @@ class AgentTaskStore:
         await self.db.refresh(task)
         return self._to_record(task)
 
+    async def update_task(
+        self,
+        task_id: int,
+        status: Optional[str] = None,
+        blocked_by: Optional[list[str]] = None,
+        source_plan_path: Optional[str] = None,
+    ) -> Optional["AgentTaskRecord"]:
+        result = await self.db.execute(select(AgentTasks).where(AgentTasks.id == task_id))
+        task = result.scalar_one_or_none()
+        if task is None:
+            return None
+        if status is not None:
+            task.status = status
+        if blocked_by is not None:
+            task.blocked_by = self._serialize_blocked_by(blocked_by)
+        if source_plan_path is not None:
+            task.source_plan_path = source_plan_path
+        await self.db.commit()
+        await self.db.refresh(task)
+        return self._to_record(task)
+
     async def list_tasks(self, project_id: int, request_key: Optional[str] = None) -> list[AgentTaskRecord]:
         query = select(AgentTasks).where(AgentTasks.project_id == project_id)
         if request_key is not None:

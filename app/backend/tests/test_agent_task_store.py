@@ -158,3 +158,24 @@ async def test_agent_task_store_create_task_rejects_non_list_blocked_by(db_sessi
             description="",
             blocked_by="not-a-list",  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.asyncio
+async def test_agent_task_store_update_task_changes_status(db_session):
+    store = AgentTaskStore(db_session)
+    task = await store.create_task(
+        project_id=42,
+        request_key="req-upd",
+        subject="Build feature",
+        description="",
+    )
+    updated = await store.update_task(task_id=task.id, status="in_progress")
+    assert updated is not None
+    assert updated.status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_agent_task_store_update_task_returns_none_for_missing(db_session):
+    store = AgentTaskStore(db_session)
+    result = await store.update_task(task_id=99999, status="completed")
+    assert result is None
