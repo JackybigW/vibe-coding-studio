@@ -185,6 +185,7 @@ async def run_engineer_session(
             task_store_factory=lambda: AgentTaskStore(db),
             project_id=project_id,
             request_key=f"project-{project_id}",
+            approval_gate=gate,
         )
         if hasattr(agent, "available_tools") and agent.available_tools is not None:
             agent.available_tools.add_tool(draft_plan_tool)

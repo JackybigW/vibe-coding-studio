@@ -565,3 +565,111 @@ async def test_project_file_operator_allows_docs_write_before_approval(tmp_path)
     # docs/ is exempt from gate — should succeed
     await operator.write_file("/workspace/docs/todo.md", "# Todo")
     assert (tmp_path / "docs" / "todo.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# ApprovalGate — plan-written tracking
+# ---------------------------------------------------------------------------
+
+def test_approval_gate_plan_required_but_not_written_blocks_todo():
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve()
+    with pytest.raises(ToolError):
+        gate.check_todo_write()
+
+
+def test_approval_gate_plan_written_allows_todo():
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve()
+    gate.record_plan_written()
+    gate.check_todo_write()  # must not raise
+
+
+def test_approval_gate_no_approval_required_skips_plan_check():
+    gate = ApprovalGate(requires_approval=False)
+    gate.check_todo_write()  # must not raise even without plan
+
+
+def test_approval_gate_record_plan_written_is_idempotent():
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve()
+    gate.record_plan_written()
+    gate.record_plan_written()
+    gate.check_todo_write()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_project_file_operator_records_plan_write_in_gate(tmp_path):
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve()
+    operator = ProjectFileOperator(
+        host_root=tmp_path,
+        container_root=Path("/workspace"),
+        approval_gate=gate,
+    )
+    assert not gate._plan_written
+    await operator.write_file("/workspace/docs/plans/2026-04-22-billing.md", "# Plan")
+    assert gate._plan_written
+
+
+@pytest.mark.asyncio
+async def test_project_file_operator_does_not_record_non_md_file_in_plans(tmp_path):
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve()
+    operator = ProjectFileOperator(
+        host_root=tmp_path,
+        container_root=Path("/workspace"),
+        approval_gate=gate,
+    )
+    await operator.write_file("/workspace/docs/plans/notes.txt", "not a plan")
+    assert not gate._plan_written
+
+
+@pytest.mark.asyncio
+async def test_todo_write_blocked_without_plan(tmp_path):
+    """todo_write raises ToolError when gate requires plan but none written."""
+    from openmanus_runtime.tool.todo_write import TodoWriteTool
+
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve()
+
+    events = []
+    operator = ProjectFileOperator(
+        host_root=tmp_path,
+        container_root=Path("/workspace"),
+        approval_gate=gate,
+    )
+    tool = TodoWriteTool.create(
+        file_operator=operator,
+        event_sink=events.append,
+        approval_gate=gate,
+    )
+    with pytest.raises(ToolError):
+        await tool.execute(items=[{"id": "1", "text": "Build UI", "status": "pending"}])
+
+
+@pytest.mark.asyncio
+async def test_todo_write_allowed_after_plan_write(tmp_path):
+    """todo_write succeeds after agent writes a plan file."""
+    from openmanus_runtime.tool.todo_write import TodoWriteTool
+
+    gate = ApprovalGate(requires_approval=True)
+    gate.approve()
+
+    events = []
+    operator = ProjectFileOperator(
+        host_root=tmp_path,
+        container_root=Path("/workspace"),
+        approval_gate=gate,
+    )
+    # Simulate agent writing the implementation plan
+    await operator.write_file("/workspace/docs/plans/2026-04-22-billing.md", "# Plan\n1. Build billing page")
+
+    tool = TodoWriteTool.create(
+        file_operator=operator,
+        event_sink=events.append,
+        approval_gate=gate,
+    )
+    result = await tool.execute(items=[{"id": "1", "text": "Build billing page", "status": "pending"}])
+    assert "updated" in result.output
+    assert (tmp_path / "docs" / "todo.md").exists()

@@ -53,6 +53,7 @@ class TodoWriteTool(BaseTool):
     _task_store_factory: Any = None
     _project_id: int = 0
     _request_key: str = ""
+    _approval_gate: Any = None
 
     @classmethod
     def create(
@@ -62,6 +63,7 @@ class TodoWriteTool(BaseTool):
         task_store_factory: Any = None,
         project_id: int = 0,
         request_key: str = "",
+        approval_gate: Any = None,
     ) -> "TodoWriteTool":
         tool = cls()
         tool._file_operator = file_operator
@@ -69,9 +71,12 @@ class TodoWriteTool(BaseTool):
         tool._task_store_factory = task_store_factory
         tool._project_id = project_id
         tool._request_key = request_key
+        tool._approval_gate = approval_gate
         return tool
 
     async def execute(self, items: Optional[list] = None, **_kwargs) -> CLIResult:
+        if self._approval_gate is not None:
+            self._approval_gate.check_todo_write()
         if items is None:
             items = []
         in_progress = [i for i in items if i.get("status") == "in_progress"]

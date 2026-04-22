@@ -196,11 +196,14 @@ class ProjectFileOperator(LocalFileOperator):
         return host_path
 
     def _to_host_write_path(self, path: PathLike) -> Path:
-        # Check approval gate before any write (docs/ exempt)
         if self._approval_gate is not None:
             posix = PurePosixPath(str(path))
-            if not posix.is_relative_to(PurePosixPath("/workspace/docs")):
+            _DOCS_ROOT = PurePosixPath("/workspace/docs")
+            _PLANS_ROOT = PurePosixPath("/workspace/docs/plans")
+            if not posix.is_relative_to(_DOCS_ROOT):
                 self._approval_gate.check_write(path)
+            if posix.is_relative_to(_PLANS_ROOT) and posix.suffix == ".md":
+                self._approval_gate.record_plan_written()
         validate_workspace_write_path(path)
         return self._to_host_path(path)
 
