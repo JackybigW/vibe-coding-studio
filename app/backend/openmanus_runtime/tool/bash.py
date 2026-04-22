@@ -137,6 +137,7 @@ _HIGHRISK_INLINE_RE = re.compile(r"\b(?:sh|bash|python3?|perl|ruby|node)\s+-[a-z
 _WORKSPACE_PATH_LITERAL_RE = re.compile(r"(/workspace(?:/[^\s'\"`;&|<>]+)+)")
 _WORKSPACE_BACKEND_FRAGMENT_RE = re.compile(r"/workspace/app/backend(?:\b|/)")
 _PROTECTED_SUFFIX_FRAGMENT_RE = re.compile(r"(?:/core/|/models/|/main\.py\b|/lambda_handler\.py\b)")
+_BACKEND_WORD_RE = re.compile(r"\bbackend\b")
 
 
 def _validate_bash_write_targets(command: str) -> None:
@@ -144,7 +145,10 @@ def _validate_bash_write_targets(command: str) -> None:
         return
 
     if _HIGHRISK_INLINE_RE.search(command) and "/workspace" in command:
-        if _WORKSPACE_BACKEND_FRAGMENT_RE.search(command) and _PROTECTED_SUFFIX_FRAGMENT_RE.search(command):
+        _has_backend_fragment = bool(_WORKSPACE_BACKEND_FRAGMENT_RE.search(command))
+        _has_protected_suffix = bool(_PROTECTED_SUFFIX_FRAGMENT_RE.search(command))
+        _has_backend_word = bool(_BACKEND_WORD_RE.search(command))
+        if _has_backend_fragment or (_has_backend_word and _has_protected_suffix):
             raise ToolError("Workspace write to protected backend path is not allowed")
 
     workspace_targets = [Path(match.group(1)) for match in _WORKSPACE_PATH_LITERAL_RE.finditer(command)]

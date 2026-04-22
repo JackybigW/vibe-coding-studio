@@ -234,6 +234,54 @@ async def test_container_bash_session_blocks_interpreter_write_targets():
 
 
 @pytest.mark.asyncio
+async def test_container_bash_session_blocks_split_path_interpreter_write_targets():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    session = ContainerBashSession(runtime_service, "container-1")
+
+    # Split across '/workspace' + '/app/backend/core/pwn.py'
+    with pytest.raises(ToolError):
+        await session.run(
+            "python -c \"open('/workspace' + '/app/backend/core/pwn.py','w').write('x')\""
+        )
+
+    # Split across '/workspace/app' + '/backend/core/pwn.py'
+    with pytest.raises(ToolError):
+        await session.run(
+            "python -c \"p='/workspace/app'; open(p + '/backend/core/pwn.py','w').write('x')\""
+        )
+
+    assert runtime_service.calls == []
+
+
+@pytest.mark.asyncio
+async def test_container_bash_session_allows_frontend_write_via_interpreter():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    session = ContainerBashSession(runtime_service, "container-1")
+
+    # Writing to frontend is allowed even via interpreter
+    result = await session.run(
+        "python -c \"open('/workspace/app/frontend/src/App.tsx','w').write('<div>hi</div>')\""
+    )
+    assert len(runtime_service.calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_container_bash_session_allows_read_only_workspace_commands():
     class FakeRuntimeService:
         def __init__(self):
