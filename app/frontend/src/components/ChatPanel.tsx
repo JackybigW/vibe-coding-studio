@@ -201,6 +201,24 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     setIsStopping(false);
   }, [resetActiveAssistantState]);
 
+  const commitAssistantReply = useCallback(
+    (content: string) => {
+      activeAssistantRenderedRef.current = content;
+      setActiveAssistantRendered(content);
+      const assistantMessage: Message = {
+        role: "assistant",
+        agent: activeAssistantAgentRef.current,
+        content,
+        model: selectedModel,
+        created_at: new Date().toISOString(),
+      };
+      appendMessage(assistantMessage);
+      void saveMessage(assistantMessage);
+      settleStreamingState();
+    },
+    [appendMessage, saveMessage, selectedModel, settleStreamingState]
+  );
+
   useEffect(() => {
     if (!isTyping) return;
     if (typingTimerRef.current !== null) return;
@@ -279,22 +297,10 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         }
         const content = activeAssistantRawRef.current.trim();
         if (content) {
-          activeAssistantRenderedRef.current = content;
-          setActiveAssistantRendered(content);
-          const assistantMessage: Message = {
-            role: "assistant",
-            agent: activeAssistantAgentRef.current,
-            content,
-            model: selectedModel,
-            created_at: new Date().toISOString(),
-          };
-          appendMessage(assistantMessage);
-          void saveMessage(assistantMessage);
+          commitAssistantReply(content);
+          return;
         }
-        resetActiveAssistantState();
-        setIsLoading(false);
-        setIsStreaming(false);
-        setIsStopping(false);
+        settleStreamingState();
         return;
       }
 
@@ -305,6 +311,9 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       }
 
       if (event.type === "session.state" && (event.status === "completed" || event.status === "failed")) {
+        if (!stopRequestedRef.current) {
+          return;
+        }
         settleStreamingState();
         return;
       }
@@ -319,7 +328,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         settleStreamingState();
       }
     },
-    [addTerminalLog, appendMessage, applyRealtimeEvent, resetActiveAssistantState, saveMessage, selectedModel, settleStreamingState]
+    [addTerminalLog, appendMessage, applyRealtimeEvent, commitAssistantReply, settleStreamingState]
   );
 
   const handleSend = async () => {
