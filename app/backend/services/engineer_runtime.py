@@ -297,15 +297,13 @@ async def run_engineer_session(
             )
         await log_step("agent run started")
         
-        MAX_PUSHBACKS = 3
-        pushbacks_count = 0
+        MAX_COMPLETION_ROUNDS = 10
+        agent = build_workspace_agent()
+        session_started = False
         current_prompt = task_prompt
         result = None
-        agent = None
-        session_started = False
-        
-        while pushbacks_count <= MAX_PUSHBACKS:
-            agent = build_workspace_agent()
+
+        for _round in range(MAX_COMPLETION_ROUNDS):
             if not session_started:
                 await traced_event_sink(
                     {
@@ -318,44 +316,47 @@ async def run_engineer_session(
                 session_started = True
 
             result = await agent.run(current_prompt)
-            
+
             request_key = gate.approved_request_key
             if not request_key:
                 break
-                
+
             task_store = AgentTaskStore(db)
             tasks = await task_store.list_tasks(project_id, request_key)
             incomplete_tasks = [t for t in tasks if t.status != "completed"]
-            
+
             has_verification = bash_session.has_verification_run()
-            
+
             if not tasks or (not incomplete_tasks and has_verification):
                 break
-                
-            if pushbacks_count >= MAX_PUSHBACKS:
-                await log_step(f"agent failed completion checks after {MAX_PUSHBACKS} pushbacks")
-                break
-                
+
             pushback_msgs = []
             if incomplete_tasks:
                 titles = ", ".join([f"'{t.subject}'" for t in incomplete_tasks])
-                pushback_msgs.append(f"- You left {len(incomplete_tasks)} task(s) incomplete: {titles}. You MUST complete them and use `todo_write` to mark their status as 'completed'.")
+                pushback_msgs.append(
+                    f"- Tasks not completed: {titles}. Mark each completed via todo_write."
+                )
             if tasks and not has_verification:
-                pushback_msgs.append("- You have not executed any bash commands to verify your code. You MUST run at least one verification command (e.g. `npm run build`, `pytest`, `curl`) before finishing.")
-                
+                pushback_msgs.append(
+                    "- No verification command run. Execute pytest, npm test, curl, or equivalent before finishing."
+                )
+
             current_prompt = (
-                "CRITICAL ERROR: You attempted to finish the session, but completion criteria were not met:\n"
-                + "\n".join(pushback_msgs) +
-                "\n\nYou cannot terminate yet. Please continue implementation, verification, and update the todo list."
+                "COMPLETION GATE — you may not finish until all tasks are marked completed and verification has run:\n"
+                + "\n".join(pushback_msgs)
             )
-            
-            await log_step(f"Agent attempted to exit early. Pushing back ({pushbacks_count + 1}/{MAX_PUSHBACKS}).")
+
+            await log_step(
+                f"Completion gate: {len(incomplete_tasks)} incomplete task(s), "
+                f"verification={has_verification}. Continuing same agent."
+            )
             await traced_event_sink({
                 "type": "assistant",
                 "agent": "system",
-                "content": current_prompt
+                "content": current_prompt,
             })
-            pushbacks_count += 1
+        else:
+            await log_step(f"Completion gate: reached max rounds ({MAX_COMPLETION_ROUNDS}), proceeding.")
 
         await log_step("agent run completed")
 

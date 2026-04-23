@@ -129,16 +129,16 @@ async def test_engineer_runtime_pushback_on_incomplete_tasks(monkeypatch, tmp_pa
     
     # Agent should have been run twice (1 original + 1 pushback)
     assert agent.run_calls == 2
-    
+
     # Check if pushback message was sent
     system_messages = [e for e in events if e.get("agent") == "system"]
     assert len(system_messages) > 0
-    assert "CRITICAL ERROR" in system_messages[0]["content"]
+    assert "COMPLETION GATE" in system_messages[0]["content"]
     assert "Task 1" in system_messages[0]["content"]
 
 
 @pytest.mark.asyncio
-async def test_engineer_runtime_uses_fresh_agent_instance_for_pushback_rounds(monkeypatch):
+async def test_engineer_runtime_reuses_same_agent_for_pushback_rounds(monkeypatch):
     events = []
 
     async def fake_event_sink(event):
@@ -231,8 +231,7 @@ async def test_engineer_runtime_uses_fresh_agent_instance_for_pushback_rounds(mo
         preview_contract_loader=lambda p: None,
     )
 
-    assert len(FakeAgentCls.instances) == 2
-    assert FakeAgentCls.instances[0].run_calls == 1
-    assert FakeAgentCls.instances[1].run_calls == 1
+    assert len(FakeAgentCls.instances) == 1
+    assert FakeAgentCls.instances[0].run_calls == 2
     assert "build something" in FakeAgentCls.instances[0].prompts[0]
-    assert "CRITICAL ERROR" in FakeAgentCls.instances[1].prompts[0]
+    assert "COMPLETION GATE" in FakeAgentCls.instances[0].prompts[1]
