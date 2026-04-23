@@ -71,6 +71,8 @@ class AgentTaskStore:
             return None
         if status is not None:
             task.status = status
+            if status == "completed":
+                await self._clear_dependency(task.project_id, task.request_key, task.task_key)
         if blocked_by is not None:
             task.blocked_by = self._serialize_blocked_by(blocked_by)
         if source_plan_path is not None:
@@ -79,6 +81,15 @@ class AgentTaskStore:
         await self.db.refresh(task)
         return self._to_record(task)
 
+
+    async def _clear_dependency(self, project_id: int, request_key: str, completed_task_key: str):
+        tasks = await self.list_tasks(project_id, request_key)
+        for task in tasks:
+            if completed_task_key in task.blocked_by:
+                new_blocked_by = [k for k in task.blocked_by if k != completed_task_key]
+                db_task = (await self.db.execute(select(AgentTasks).where(AgentTasks.id == task.id))).scalar_one_or_none()
+                if db_task:
+                    db_task.blocked_by = self._serialize_blocked_by(new_blocked_by)
     async def list_tasks(self, project_id: int, request_key: Optional[str] = None) -> list[AgentTaskRecord]:
         query = select(AgentTasks).where(AgentTasks.project_id == project_id)
         if request_key is not None:

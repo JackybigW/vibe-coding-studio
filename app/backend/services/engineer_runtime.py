@@ -206,6 +206,7 @@ async def run_engineer_session(
         from openmanus_runtime.tool.draft_plan import DraftPlanTool
         from openmanus_runtime.tool.load_skill import LoadSkillTool
         from openmanus_runtime.tool.todo_write import TodoWriteTool
+        from openmanus_runtime.tool.task_update import TaskUpdateTool
         from services.agent_draft_plan import get_agent_draft_plan_service
         from services.agent_task_store import AgentTaskStore
 
@@ -234,10 +235,17 @@ async def run_engineer_session(
                 project_id=project_id,
                 approval_gate=gate,
             )
+            task_update_tool = TaskUpdateTool.create(
+                event_sink=traced_event_sink,
+                task_store_factory=lambda: AgentTaskStore(db),
+                project_id=project_id,
+                approval_gate=gate,
+            )
             if hasattr(agent, "available_tools") and agent.available_tools is not None:
                 agent.available_tools.add_tool(draft_plan_tool)
                 agent.available_tools.add_tool(load_skill_tool)
                 agent.available_tools.add_tool(todo_write_tool)
+                agent.available_tools.add_tool(task_update_tool)
             logger.info("%s agent built name=%s", prefix, agent.name)
             return agent
 
@@ -282,13 +290,20 @@ async def run_engineer_session(
             "`docs/plans/{YYYY-MM-DD}-{feature-slug}.md` using str_replace_editor. "
             "This plan must expand each approved item into concrete steps with specific file paths, "
             "what to create/modify, and execution order.\n"
-            "3. You must call `todo_write` before implementation with the checklist (max 8 items, one in_progress at a time). "
-            "Implementation writes and write-intent bash commands will be rejected until docs/todo.md is created through this tool.\n"
-            "4. Implement the plan step by step. You MUST continuously call `todo_write` to update task statuses "
-            "to 'completed' as you finish them, and set the next task to 'in_progress'.\n"
-            "5. Run verification commands (e.g., pytest, npm test, curl) when done to verify your work.\n"
-            "6. You MUST ensure ALL tasks are marked as 'completed' via `todo_write` BEFORE you finish. Do NOT attempt "
-            "to finish if any task is still pending or in_progress.\n\n"
+            "3. You must call `todo_write` BEFORE implementation to initialize the task system with your full checklist (max 8 items). "
+            "Each item can specify a `blocked_by` array if it depends on other tasks.
+"
+            "4. Implement the plan step by step. You MUST continuously call `task_update` to update task statuses "
+            "to 'completed' as you finish them, and set the next task to 'in_progress'. "
+            "When a task is marked 'completed', it will automatically unblock dependent tasks.
+"
+            "5. Run verification commands (e.g., pytest, npm test, curl) when done to verify your work.
+"
+            "6. You MUST ensure ALL tasks are marked as 'completed' via `task_update` BEFORE you finish. Do NOT attempt "
+            "to finish if any task is still pending or in_progress.
+
+"
+
             f"User request:\n{prompt}"
         )
         skill_listing = _skill_loader.describe_available()
@@ -337,7 +352,7 @@ async def run_engineer_session(
             if incomplete_tasks:
                 titles = ", ".join([f"'{t.subject}'" for t in incomplete_tasks])
                 pushback_msgs.append(
-                    f"- Tasks not completed: {titles}. Mark each completed via todo_write."
+                    f"- Tasks not completed: {titles}. Mark each completed via task_update."
                 )
             if tasks and not has_verification:
                 pushback_msgs.append(

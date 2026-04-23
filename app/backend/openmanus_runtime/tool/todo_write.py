@@ -23,8 +23,9 @@ def _render_todo_markdown(items: list[dict]) -> str:
 class TodoWriteTool(BaseTool):
     name: str = "todo_write"
     description: str = (
-        "Write or update docs/todo.md with the current task checklist. "
-        "At most one item may be in_progress at a time."
+        "Initialize the task system with the full list of tasks. "
+        "Use this ONCE at the start to create all tasks. "
+        "Then use task_update to mark them as completed later."
     )
     parameters: dict = {
         "type": "object",
@@ -47,8 +48,13 @@ class TodoWriteTool(BaseTool):
                         "text": {"type": "string"},
                         "status": {
                             "type": "string",
-                            "enum": ["pending", "in_progress", "completed", "blocked"],
+                            "enum": ["pending", "in_progress", "completed"],
                         },
+                        "blocked_by": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of task IDs that must be completed before this task."
+                        }
                     },
                     "required": ["id", "text", "status"],
                 },
@@ -146,7 +152,6 @@ class TodoWriteTool(BaseTool):
                                     f"Complete all blocker tasks before setting this task to in_progress."
                                 )
 
-        # Notify the approval gate before the file write so the gate state is correct
         if self._approval_gate is not None:
             has_active = any(i.get("status") == "in_progress" for i in items)
             if has_active:
@@ -154,14 +159,9 @@ class TodoWriteTool(BaseTool):
             else:
                 self._approval_gate.notify_no_active_task()
 
-        content = _render_todo_markdown(items)
         if self._approval_gate is not None:
             self._approval_gate.begin_todo_write()
-        try:
-            await self._file_operator.write_file("/workspace/docs/todo.md", content)
-        finally:
-            if self._approval_gate is not None:
-                self._approval_gate.end_todo_write()
+            self._approval_gate.end_todo_write()
 
         event = {"type": "todo.updated", "items": items}
         result = self._event_sink(event)
@@ -204,4 +204,4 @@ class TodoWriteTool(BaseTool):
         if self._approval_gate is not None:
             self._approval_gate.record_todo_written()
 
-        return CLIResult(output=f"docs/todo.md updated with {len(items)} items.")
+        return CLIResult(output=f"Task system initialized with {len(items)} items. Use task_update tool to progress them.")

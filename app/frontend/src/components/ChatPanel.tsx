@@ -26,6 +26,11 @@ import {
   Briefcase,
   Sparkles,
   StopCircle,
+  CheckCircle2,
+  FileCode,
+  Circle,
+  PlayCircle,
+  ListTodo,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -77,7 +82,7 @@ function createTraceId(): string {
 
 export default function ChatPanel({ mode }: ChatPanelProps) {
   const { user, isAuthenticated } = useAuth();
-  const { projectId, addTerminalLog, applyRealtimeEvent, progressItems } = useWorkspace();
+  const { projectId, addTerminalLog, applyRealtimeEvent, progressItems, taskSummaries } = useWorkspace();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -552,6 +557,31 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {taskSummaries && taskSummaries.length > 0 && (
+        <div className="border-t border-[#27272A] p-3 bg-[#18181B]/50">
+          <div className="flex items-center gap-2 mb-2 text-[#E4E4E7] text-xs font-semibold uppercase tracking-wider">
+            <ListTodo className="w-3.5 h-3.5" />
+            Agent Task Checklist
+          </div>
+          <div className="space-y-1.5 max-h-[25vh] overflow-y-auto pr-2 custom-scrollbar">
+            {taskSummaries.map((t: any) => (
+              <div key={t.id || t.task_key} className="flex items-start gap-2 text-xs">
+                {t.status === "completed" ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E] flex-shrink-0 mt-0.5" />
+                ) : t.status === "in_progress" ? (
+                  <PlayCircle className="w-3.5 h-3.5 text-[#A855F7] flex-shrink-0 mt-0.5" />
+                ) : (
+                  <Circle className="w-3.5 h-3.5 text-[#52525B] flex-shrink-0 mt-0.5" />
+                )}
+                <span className={`flex-1 ${t.status === "completed" ? "text-[#71717A] line-through" : "text-[#E4E4E7]"}`}>
+                  {t.subject}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="border-t border-[#27272A] p-3">
         <div className="flex items-end gap-2 bg-[#18181B] border border-[#27272A] rounded-xl px-3 py-2 focus-within:border-[#7C3AED]/50 transition-colors">
