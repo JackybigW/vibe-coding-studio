@@ -152,28 +152,10 @@ async def run_engineer_session(
         )
         await log_step(f"loaded {len(persisted_history)} persisted messages")
 
-        from services.agent_bootstrap import classify_user_request_async
-
-        bootstrap_ctx = await classify_user_request_async(prompt, persisted_history)
-        await log_step(
-            "request classified "
-            f"mode={bootstrap_ctx.mode} requires_draft_plan={bootstrap_ctx.requires_draft_plan}"
-        )
-
-        if bootstrap_ctx.mode == "conversation":
-            await log_step("conversation request detected; skipping sandbox startup")
-            await traced_event_sink(
-                {
-                    "type": "assistant",
-                    "agent": "engineer",
-                    "content": (
-                        "This doesn't look like an implementation request yet. "
-                        "Tell me what you want me to build, change, or fix, and I'll draft a plan before editing files."
-                    ),
-                }
-            )
-            recorder.set_status("completed")
-            return True
+        # We completely remove the DeepSeek classifier intercept.
+        # Always assume we might need the sandbox and let the agent naturally decide
+        # if it needs to use implementation tools (which will enforce the plan gate).
+        requires_draft_plan = True
 
         sandbox_service = sandbox_service_factory()
         try:
@@ -191,7 +173,7 @@ async def run_engineer_session(
             return False
 
         from services.approval_gate import ApprovalGate
-        gate = ApprovalGate(requires_approval=bootstrap_ctx.requires_draft_plan)
+        gate = ApprovalGate(requires_approval=requires_draft_plan)
         file_operator = ProjectFileOperator(
             host_root=paths.host_root,
             container_root=paths.container_root,
