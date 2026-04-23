@@ -262,6 +262,9 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       }
 
       if (event.type === "assistant.message_done") {
+        if (ignoreAssistantEventsRef.current) {
+          return;
+        }
         const content = activeAssistantRawRef.current.trim();
         if (content) {
           activeAssistantRenderedRef.current = content;

@@ -18,6 +18,8 @@ const realtimeHarness: {
   approveDraftPlan: vi.fn(),
 };
 
+const messageCreateMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
     user: { id: "user-1", avatar_url: null },
@@ -30,7 +32,7 @@ vi.mock("@/lib/api", () => ({
     entities: {
       messages: {
         query: vi.fn().mockResolvedValue({ data: { items: [] } }),
-        create: vi.fn().mockResolvedValue({}),
+        create: messageCreateMock,
       },
     },
   },
@@ -77,6 +79,8 @@ describe("ChatPanel", () => {
     realtimeHarness.sendUserMessage.mockReset();
     realtimeHarness.stopRun.mockReset();
     realtimeHarness.approveDraftPlan.mockReset();
+    messageCreateMock.mockReset();
+    messageCreateMock.mockResolvedValue({});
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -256,6 +260,55 @@ describe("ChatPanel", () => {
       });
 
       expect(screen.getByText((_, element) => element?.tagName === "P" && (element.textContent?.startsWith("QZ") ?? false)).textContent).toBe(renderedBeforeStop);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not commit a late assistant.message_done after Stop is clicked", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    const buttons = screen.getAllByRole("button");
+    fireEvent.click(buttons[buttons.length - 1]);
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
+    });
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        realtimeHarness.onEvent?.({ type: "assistant.delta", agent: "swe", content: "Stopped reply should" });
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(24);
+      });
+
+      fireEvent.click(screen.getAllByRole("button")[screen.getAllByRole("button").length - 1]);
+
+      act(() => {
+        realtimeHarness.onEvent?.({ type: "assistant.delta", agent: "swe", content: " not persist" });
+        realtimeHarness.onEvent?.({ type: "assistant.message_done", agent: "swe" });
+        realtimeHarness.onEvent?.({ type: "run.stopped" });
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(
+        messageCreateMock.mock.calls.filter(([payload]) => payload.data.role === "assistant")
+      ).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
