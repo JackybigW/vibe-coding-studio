@@ -36,8 +36,71 @@ class ToolCallAgent(ReActAgent):
     max_steps: int = 30
     max_observe: Optional[Union[int, bool]] = None
 
+
+
+    def estimate_tokens(self) -> int:
+        """Rough token count: ~4 chars per token."""
+        text = str([m.to_dict() for m in self.messages])
+        return len(text) // 4
+
+    def micro_compact(self):
+        """Layer 1: Replace old tool outputs with placeholders."""
+        KEEP_RECENT = 3
+        PRESERVE_TOOLS = {"read_file", "view_file"}
+        
+        tool_msgs = [(idx, msg) for idx, msg in enumerate(self.messages) if msg.role == "tool"]
+        if len(tool_msgs) <= KEEP_RECENT:
+            return
+            
+        to_clear = tool_msgs[:-KEEP_RECENT]
+        for idx, msg in to_clear:
+            if not msg.content or len(msg.content) <= 100:
+                continue
+            if getattr(msg, "name", "unknown") in PRESERVE_TOOLS:
+                continue
+            # Replace content
+            self.messages[idx].content = f"[Previous: used {msg.name}]"
+
+    async def auto_compact(self):
+        """Layer 2: Summarize conversation when threshold is met."""
+        if len(self.messages) <= 5:
+            return
+            
+        logger.info("🧠 Memory threshold reached. Auto-compacting conversation...")
+        first_msg = self.messages[0]
+        recent_msgs = self.messages[-3:]
+        msgs_to_summarize = self.messages[1:-3]
+        
+        if not msgs_to_summarize:
+            return
+            
+        conv_text = str([m.to_dict() for m in msgs_to_summarize])[-80000:]
+        summary_prompt = (
+            "Summarize the following intermediate conversation for continuity. "
+            "Include: 1) What was accomplished, 2) Current state, 3) Key decisions made. "
+            "Be concise but preserve critical details.\n\n" + conv_text
+        )
+        
+        try:
+            summary_response = await self.llm.ask(
+                messages=[Message.user_message(summary_prompt)],
+                system_msgs=[Message.system_message("You are an expert summarizer for an AI agent's memory.")],
+            )
+            summary = summary_response.content
+        except Exception as e:
+            logger.error(f"Failed to auto-compact: {e}")
+            return
+            
+        summary_msg = Message.user_message(f"[Intermediate conversation compressed]\n\n{summary}")
+        self.messages = [first_msg, summary_msg] + recent_msgs
+        logger.info("✨ Auto-compaction complete.")
+
     async def think(self) -> bool:
         """Process current state and decide next actions using tools"""
+        self.micro_compact()
+        if self.estimate_tokens() > 50000:
+            await self.auto_compact()
+            
         if self.next_step_prompt:
             user_msg = Message.user_message(self.next_step_prompt)
             self.messages += [user_msg]
