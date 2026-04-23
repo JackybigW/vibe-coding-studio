@@ -20,6 +20,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    cp /root/.local/bin/uv /usr/local/bin/uv && \
+    cp /root/.local/bin/uvx /usr/local/bin/uvx
 
 COPY start-dev /usr/local/bin/start-dev
 COPY start-preview /usr/local/bin/start-preview

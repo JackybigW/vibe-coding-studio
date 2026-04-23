@@ -284,8 +284,11 @@ async def run_engineer_session(
             "what to create/modify, and execution order.\n"
             "3. You must call `todo_write` before implementation with the checklist (max 8 items, one in_progress at a time). "
             "Implementation writes and write-intent bash commands will be rejected until docs/todo.md is created through this tool.\n"
-            "4. Implement the plan step by step\n"
-            "5. Run verification commands when done\n\n"
+            "4. Implement the plan step by step. You MUST continuously call `todo_write` to update task statuses "
+            "to 'completed' as you finish them, and set the next task to 'in_progress'.\n"
+            "5. Run verification commands (e.g., pytest, npm test, curl) when done to verify your work.\n"
+            "6. You MUST ensure ALL tasks are marked as 'completed' via `todo_write` BEFORE you finish. Do NOT attempt "
+            "to finish if any task is still pending or in_progress.\n\n"
             f"User request:\n{prompt}"
         )
         skill_listing = _skill_loader.describe_available()
