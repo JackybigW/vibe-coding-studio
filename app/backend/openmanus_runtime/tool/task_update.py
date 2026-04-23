@@ -8,7 +8,8 @@ class TaskUpdateTool(BaseTool):
     description: str = (
         "Update the status of a specific task. "
         "Status can be 'in_progress' or 'completed'. "
-        "When a task is marked 'completed', it is automatically removed from other tasks' blocked_by lists."
+        "When a task is marked 'completed', it is automatically removed from other tasks' blocked_by lists. "
+        "WARNING: Do NOT mark a task as 'completed' unless you have ACTUALLY written the required code and verified it. Falsely marking tasks as completed without implementing them is strictly prohibited."
     )
     parameters: dict = {
         "type": "object",

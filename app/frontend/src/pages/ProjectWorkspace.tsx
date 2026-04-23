@@ -159,18 +159,34 @@ export function WorkspaceInner() {
   // Ensure workspace runtime only after the workspace context has switched projects.
   useEffect(() => {
     if (!routeProjectId || activeProjectId !== routeProjectId) return;
-    ensureWorkspaceRuntime(routeProjectId)
-      .then((status) => {
-        setPreview({ ...status });
-      })
-      .catch((err) => {
-        clearPreview();
-        setPreviewFailure({
-          reason: "ensure_failed",
-          error: err instanceof Error ? err.message : String(err),
+    
+    let isCancelled = false;
+    let timeoutId: NodeJS.Timeout;
+
+    const attemptEnsure = () => {
+      ensureWorkspaceRuntime(routeProjectId)
+        .then((status) => {
+          if (isCancelled) return;
+          setPreview({ ...status });
+        })
+        .catch((err) => {
+          if (isCancelled) return;
+          clearPreview();
+          setPreviewFailure({
+            reason: "ensure_failed",
+            error: err instanceof Error ? err.message : String(err),
+          });
+          console.error("Failed to ensure workspace runtime, retrying in 3s...", err);
+          timeoutId = setTimeout(attemptEnsure, 3000);
         });
-        console.error("Failed to ensure workspace runtime:", err);
-      });
+    };
+
+    attemptEnsure();
+
+    return () => {
+      isCancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [activeProjectId, clearPreview, routeProjectId, setPreview, setPreviewFailure]);
 
   // Load project
