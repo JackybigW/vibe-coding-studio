@@ -98,6 +98,8 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const [activeAssistantAgent, setActiveAssistantAgent] = useState("engineer");
   const [isTyping, setIsTyping] = useState(false);
   const [isTaskChecklistExpanded, setIsTaskChecklistExpanded] = useState(true);
+  const [isProgressExpanded, setIsProgressExpanded] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [pendingDraftPlan, setPendingDraftPlan] = useState<{
     request_key: string;
     items: Array<{ id: string; text: string }>;
@@ -283,12 +285,14 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         resetActiveAssistantState();
         setIsLoading(false);
         setIsStreaming(false);
+        setIsStopping(false);
         return;
       }
 
       if (event.type === "run.stopped") {
         setIsLoading(false);
         setIsStreaming(false);
+        setIsStopping(false);
         resetActiveAssistantState();
         addTerminalLog("$ engineer run stopped");
         return;
@@ -297,6 +301,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       if (event.type === "session.state" && (event.status === "completed" || event.status === "failed")) {
         setIsLoading(false);
         setIsStreaming(false);
+        setIsStopping(false);
         return;
       }
 
@@ -310,13 +315,14 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         resetActiveAssistantState();
         setIsLoading(false);
         setIsStreaming(false);
+        setIsStopping(false);
       }
     },
     [addTerminalLog, appendMessage, applyRealtimeEvent, resetActiveAssistantState, selectedModel]
   );
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || isStopping) return;
 
     const userMsg: Message = {
       role: "user",
@@ -328,6 +334,8 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     setInput("");
     setIsLoading(true);
     setIsStreaming(true);
+    setIsStopping(false);
+    setIsProgressExpanded(false);
     sessionGenerationRef.current += 1;
     const sessionGeneration = sessionGenerationRef.current;
 
@@ -406,6 +414,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   };
 
   const handleStop = () => {
+    setIsStopping(true);
     sessionRef.current?.stopRun();
     ignoreAssistantEventsRef.current = true;
     stopTypingLoop();
@@ -425,6 +434,9 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      if (isLoading || isStopping) {
+        return;
+      }
       handleSend();
     }
   };
@@ -594,12 +606,32 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                 </div>
               ) : null}
               {progressItems.length > 0 ? (
-                <div className="mt-3 space-y-1">
-                  {progressItems.map((item) => (
-                    <div key={item} className="text-xs text-[#A1A1AA]">
-                      {item}
+                <div className="mt-3 border-t border-[#27272A] pt-3">
+                  <button
+                    type="button"
+                    aria-expanded={isProgressExpanded}
+                    onClick={() => setIsProgressExpanded((expanded) => !expanded)}
+                    className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#A1A1AA] hover:text-[#E4E4E7] transition-colors"
+                  >
+                    {isProgressExpanded ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                    <span>Progress</span>
+                    <span className="normal-case font-normal text-[#52525B]">
+                      {progressItems.length} updates
+                    </span>
+                  </button>
+                  {isProgressExpanded ? (
+                    <div className="mt-2 space-y-1 rounded-lg border border-[#27272A] bg-[#111113] px-3 py-2">
+                      {progressItems.map((item) => (
+                        <div key={item} className="text-xs text-[#A1A1AA]">
+                          {item}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -695,11 +727,12 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
             className="flex-1 bg-transparent text-sm text-white placeholder:text-[#52525B] resize-none outline-none min-h-[24px] max-h-[200px]"
             rows={1}
           />
-          {isStreaming ? (
+          {isStreaming || isStopping ? (
             <Button
               size="sm"
               variant="ghost"
-              className="text-red-400 hover:text-red-300 hover:bg-red-400/10 p-1 mb-0.5"
+              aria-label="Stop agent"
+              className="bg-red-500/15 text-red-300 hover:bg-red-500/25 hover:text-red-200 p-1 mb-0.5 h-7 w-7"
               onClick={handleStop}
             >
               <StopCircle className="w-4 h-4" />
@@ -709,6 +742,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
               size="sm"
               onClick={handleSend}
               disabled={!input.trim() || isLoading || !projectId}
+              aria-label="Send message"
               className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white p-1 mb-0.5 h-7 w-7"
             >
               {isLoading ? (

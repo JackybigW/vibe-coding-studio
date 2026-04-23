@@ -96,7 +96,7 @@ describe("ChatPanel", () => {
     );
   });
 
-  it("shows engineer progress without rendering raw terminal logs in chat", async () => {
+  it("keeps the progress feed collapsed by default and reveals it when expanded", async () => {
     render(
       <WorkspaceProvider>
         <WorkspaceHarness>
@@ -116,15 +116,72 @@ describe("ChatPanel", () => {
     });
 
     act(() => {
-      realtimeHarness.onEvent?.({ type: "assistant.delta", agent: "swe", content: "Updating auth flow" });
       realtimeHarness.onEvent?.({ type: "progress", label: "Editing src/App.tsx" });
-      realtimeHarness.onEvent?.({ type: "terminal.log", content: "$ pnpm test" });
-      realtimeHarness.onEvent?.({ type: "assistant.message_done", agent: "swe" });
     });
 
-    expect(await screen.findByText("Updating auth flow")).toBeInTheDocument();
+    expect(screen.queryByText("Editing src/App.tsx")).not.toBeInTheDocument();
+    const progressToggle = screen.getByRole("button", { name: /progress/i });
+    expect(progressToggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(progressToggle);
+
     expect(screen.getByText("Editing src/App.tsx")).toBeInTheDocument();
-    expect(screen.queryByText("$ pnpm test")).not.toBeInTheDocument();
+  });
+
+  it("swaps the send button for a Stop agent control while a run is active", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByRole("button", { name: /send message/i })).not.toBeInTheDocument();
+    const stopButton = screen.getByRole("button", { name: /stop agent/i });
+
+    fireEvent.click(stopButton);
+
+    expect(realtimeHarness.stopRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send a second prompt when Enter is pressed after stopping a run", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    const textarea = screen.getByPlaceholderText(/Describe what you want to build/i);
+
+    fireEvent.change(textarea, {
+      target: { value: "build auth" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /stop agent/i }));
+
+    fireEvent.change(textarea, {
+      target: { value: "build payments" },
+    });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter", charCode: 13 });
+
+    expect(realtimeHarness.sendUserMessage).toHaveBeenCalledTimes(1);
   });
 
   it("renders a draft plan card with an approve button when draft_plan.pending arrives", async () => {
@@ -336,14 +393,16 @@ describe("ChatPanel", () => {
 
     const oldSessionEvent = realtimeHarness.onEvent;
 
-    buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[buttons.length - 1]);
+    fireEvent.click(screen.getByRole("button", { name: /stop agent/i }));
+
+    act(() => {
+      oldSessionEvent?.({ type: "run.stopped" });
+    });
 
     fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
       target: { value: "build payments" },
     });
-    buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[buttons.length - 1]);
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => {
       expect(realtimeHarness.sendUserMessage).toHaveBeenCalledTimes(2);
