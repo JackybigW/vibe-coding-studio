@@ -158,6 +158,49 @@ describe("ChatPanel", () => {
     expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
   });
 
+  it("buffers assistant delta text until message_done flushes the remainder", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    const buttons = screen.getAllByRole("button");
+    fireEvent.click(buttons[buttons.length - 1]);
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
+    });
+
+    vi.useFakeTimers();
+    try {
+      const assistantText = "Streaming response should not render all at once";
+
+      act(() => {
+        realtimeHarness.onEvent?.({ type: "assistant.delta", agent: "swe", content: assistantText });
+      });
+
+      expect(screen.queryByText(assistantText)).not.toBeInTheDocument();
+
+      act(() => {
+        realtimeHarness.onEvent?.({ type: "assistant.message_done", agent: "swe" });
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(screen.getByText(assistantText)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not render a draft plan card for normal assistant messages", async () => {
     render(
       <WorkspaceProvider>

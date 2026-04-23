@@ -71,6 +71,10 @@ const AGENT_COLORS: Record<string, string> = {
   analyst: "text-amber-400",
 };
 
+const TYPEWRITER_TICK_MS = 24;
+const MIN_CHARS_PER_TICK = 2;
+const MAX_CHARS_PER_TICK = 12;
+
 interface ChatPanelProps {
   mode: "engineer" | "team";
 }
@@ -90,15 +94,19 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("MiniMax-M2.7-highspeed");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [activeAssistantMessage, setActiveAssistantMessage] = useState("");
+  const [activeAssistantRendered, setActiveAssistantRendered] = useState("");
   const [activeAssistantAgent, setActiveAssistantAgent] = useState("engineer");
+  const [isTyping, setIsTyping] = useState(false);
   const [isTaskChecklistExpanded, setIsTaskChecklistExpanded] = useState(true);
   const [pendingDraftPlan, setPendingDraftPlan] = useState<{
     request_key: string;
     items: Array<{ id: string; text: string }>;
   } | null>(null);
-  const activeAssistantMessageRef = useRef("");
+  const activeAssistantRawRef = useRef("");
+  const activeAssistantRenderedRef = useRef("");
   const activeAssistantAgentRef = useRef("engineer");
+  const ignoreAssistantEventsRef = useRef(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionRef = useRef<ReturnType<typeof createAgentRealtimeSession> | null>(null);
@@ -109,7 +117,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, activeAssistantMessage, progressItems, scrollToBottom]);
+  }, [messages, activeAssistantRendered, progressItems, scrollToBottom]);
 
   // Load messages for project
   useEffect(() => {
@@ -163,6 +171,65 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     setMessages((prev) => [...prev, message]);
   }, []);
 
+  const stopTypingLoop = useCallback(() => {
+    if (typingTimerRef.current !== null) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+    setIsTyping(false);
+  }, []);
+
+  const resetActiveAssistantState = useCallback(() => {
+    stopTypingLoop();
+    ignoreAssistantEventsRef.current = true;
+    activeAssistantRawRef.current = "";
+    activeAssistantRenderedRef.current = "";
+    activeAssistantAgentRef.current = "engineer";
+    setActiveAssistantRendered("");
+    setActiveAssistantAgent("engineer");
+  }, [stopTypingLoop]);
+
+  useEffect(() => {
+    if (!isTyping) return;
+    if (typingTimerRef.current !== null) return;
+
+    typingTimerRef.current = setTimeout(() => {
+      typingTimerRef.current = null;
+
+      if (ignoreAssistantEventsRef.current) {
+        return;
+      }
+
+      const raw = activeAssistantRawRef.current;
+      const rendered = activeAssistantRenderedRef.current;
+      const backlog = raw.length - rendered.length;
+
+      if (backlog <= 0) {
+        setIsTyping(false);
+        return;
+      }
+
+      const chunkSize = Math.max(
+        MIN_CHARS_PER_TICK,
+        Math.min(MAX_CHARS_PER_TICK, Math.ceil(backlog / 6))
+      );
+      const nextRendered = raw.slice(0, rendered.length + chunkSize);
+      activeAssistantRenderedRef.current = nextRendered;
+      setActiveAssistantRendered(nextRendered);
+
+      if (nextRendered.length >= raw.length) {
+        setIsTyping(false);
+      }
+    }, TYPEWRITER_TICK_MS);
+
+    return () => {
+      if (typingTimerRef.current !== null) {
+        clearTimeout(typingTimerRef.current);
+        typingTimerRef.current = null;
+      }
+    };
+  }, [isTyping, activeAssistantRendered]);
+
   const logAgentTrace = useCallback((traceId: string, stage: string, details?: Record<string, unknown>) => {
     const suffix = details ? ` ${JSON.stringify(details)}` : "";
     console.info(`[agent:${traceId}] ${stage}${suffix}`);
@@ -184,17 +251,19 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
 
       if (event.type === "assistant.delta") {
         const nextAgent = event.agent || "engineer";
-        const nextMessage = `${activeAssistantMessageRef.current}${event.content}`;
+        ignoreAssistantEventsRef.current = false;
         activeAssistantAgentRef.current = nextAgent;
-        activeAssistantMessageRef.current = nextMessage;
+        activeAssistantRawRef.current = `${activeAssistantRawRef.current}${event.content}`;
         setActiveAssistantAgent(nextAgent);
-        setActiveAssistantMessage(nextMessage);
+        setIsTyping(true);
         return;
       }
 
       if (event.type === "assistant.message_done") {
-        const content = activeAssistantMessageRef.current.trim();
+        const content = activeAssistantRawRef.current.trim();
         if (content) {
+          activeAssistantRenderedRef.current = content;
+          setActiveAssistantRendered(content);
           const assistantMessage: Message = {
             role: "assistant",
             agent: activeAssistantAgentRef.current,
@@ -205,10 +274,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
           appendMessage(assistantMessage);
           void saveMessage(assistantMessage);
         }
-        activeAssistantAgentRef.current = "engineer";
-        activeAssistantMessageRef.current = "";
-        setActiveAssistantAgent("engineer");
-        setActiveAssistantMessage("");
+        resetActiveAssistantState();
         setIsLoading(false);
         setIsStreaming(false);
         return;
@@ -217,10 +283,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       if (event.type === "run.stopped") {
         setIsLoading(false);
         setIsStreaming(false);
-        activeAssistantAgentRef.current = "engineer";
-        activeAssistantMessageRef.current = "";
-        setActiveAssistantAgent("engineer");
-        setActiveAssistantMessage("");
+        resetActiveAssistantState();
         addTerminalLog("$ engineer run stopped");
         return;
       }
@@ -238,15 +301,12 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
           content: event.error || event.message || "Unknown error",
           created_at: new Date().toISOString(),
         });
-        activeAssistantAgentRef.current = "engineer";
-        activeAssistantMessageRef.current = "";
-        setActiveAssistantAgent("engineer");
-        setActiveAssistantMessage("");
+        resetActiveAssistantState();
         setIsLoading(false);
         setIsStreaming(false);
       }
     },
-    [addTerminalLog, appendMessage, applyRealtimeEvent, selectedModel]
+    [addTerminalLog, appendMessage, applyRealtimeEvent, resetActiveAssistantState, selectedModel]
   );
 
   const handleSend = async () => {
@@ -269,10 +329,13 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     try {
       sessionRef.current?.close();
       sessionRef.current = null;
+      ignoreAssistantEventsRef.current = false;
+      stopTypingLoop();
       activeAssistantAgentRef.current = "engineer";
-      activeAssistantMessageRef.current = "";
+      activeAssistantRawRef.current = "";
+      activeAssistantRenderedRef.current = "";
       setActiveAssistantAgent("engineer");
-      setActiveAssistantMessage("");
+      setActiveAssistantRendered("");
       logAgentTrace(traceId, "send:start", {
         projectId,
         model: selectedModel,
@@ -338,10 +401,11 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
 
   useEffect(() => {
     return () => {
+      stopTypingLoop();
       sessionRef.current?.close();
       sessionRef.current = null;
     };
-  }, []);
+  }, [stopTypingLoop]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -493,7 +557,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
             </div>
           </div>
         ))}
-        {(activeAssistantMessage || progressItems.length > 0) && (
+        {(activeAssistantRendered || progressItems.length > 0) && (
           <div className="flex gap-3">
             <div className="flex-shrink-0">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#7C3AED] to-[#A855F7] flex items-center justify-center">
@@ -504,12 +568,12 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
               <div className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${AGENT_COLORS[activeAssistantAgent] || "text-[#A855F7]"}`}>
                 {activeAssistantAgent}
               </div>
-              {activeAssistantMessage ? (
+              {activeAssistantRendered ? (
                 <div className="text-sm text-[#E4E4E7] prose prose-invert prose-sm max-w-none">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {activeAssistantMessage}
+                    {activeAssistantRendered}
                   </ReactMarkdown>
-                  {isStreaming && (
+                  {isTyping && (
                     <span className="inline-block w-2 h-4 bg-[#A855F7] animate-pulse ml-0.5" />
                   )}
                 </div>
