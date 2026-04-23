@@ -40,7 +40,25 @@ async def ensure_runtime_for_project(
         and existing.status == "running"
         and can_reuse_preview_session(existing.preview_session_key, existing.preview_expires_at)
     ):
-        return existing
+        # Verify the Vite dev server is actually alive (it can die inside the container)
+        if existing.frontend_port:
+            sandbox_service_check = SandboxRuntimeService(project_root=_WORKSPACES_ROOT)
+            container_name_check = existing.container_name
+            if container_name_check:
+                frontend_alive = await sandbox_service_check.wait_for_service(
+                    container_name_check, 3000, timeout_seconds=3
+                )
+                if frontend_alive:
+                    return existing
+                else:
+                    logger.warning(
+                        "[ensure_runtime] cached session found but frontend port %s is dead, forcing restart",
+                        existing.frontend_port,
+                    )
+            else:
+                return existing
+        else:
+            return existing
 
     workspace_service = ProjectWorkspaceService(base_root=_WORKSPACES_ROOT)
     paths = workspace_service.resolve_paths(user_id=user_id, project_id=project_id)

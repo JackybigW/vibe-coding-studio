@@ -45,6 +45,11 @@ export default defineConfig(({ mode }) => ({
         target: `http://localhost:8000`,
         changeOrigin: true,
       },
+      '/preview': {
+        target: `http://localhost:8000`,
+        changeOrigin: true,
+        ws: true,
+      },
     },
     watch: { usePolling: true, interval: 600 },
   },
