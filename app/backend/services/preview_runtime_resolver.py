@@ -150,7 +150,15 @@ def _resolve_import_target(
     if manifest_backend_command and "uvicorn" in manifest_backend_command:
         target = _extract_uvicorn_import_target(manifest_backend_command)
         if target:
-            return target
+            # Verify the module file actually exists in existing_paths before
+            # trusting the manifest-extracted target.  The module name is the
+            # part before the colon (e.g. "server" from "server:app").
+            module_name = target.split(":")[0]
+            candidate = f"{backend_root}/{module_name}.py"
+            if candidate in existing_paths:
+                return target
+            # File not present — fall through to heuristic resolution so that
+            # callers either get a verified target or a diagnostic.
 
     # 2. main.py -> main:app
     if f"{backend_root}/main.py" in existing_paths:
