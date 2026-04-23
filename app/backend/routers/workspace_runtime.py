@@ -20,6 +20,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/workspace-runtime", tags=["workspace-runtime"])
 
+
+def build_runtime_failure_report(
+    *,
+    service: str,
+    phase: str,
+    reason_code: str,
+    detected_root: str = "",
+    detected_entrypoint: str = "",
+    attempted_command: str = "",
+    stderr_tail: str = "",
+    suggested_fix: str = "",
+) -> dict:
+    return {
+        "service": service,
+        "phase": phase,
+        "reason_code": reason_code,
+        "detected_root": detected_root,
+        "detected_entrypoint": detected_entrypoint,
+        "attempted_command": attempted_command,
+        "stderr_tail": stderr_tail,
+        "suggested_fix": suggested_fix,
+    }
+
 _WORKSPACES_ROOT = Path(os.environ.get("ATOMS_WORKSPACES_ROOT", "/tmp/atoms_workspaces"))
 
 
@@ -106,24 +129,35 @@ async def ensure_runtime_for_project(
             path=contract.backend.healthcheck_path,
         )
 
+    backend_configured = bool(contract and contract.backend)
+    if backend_configured:
+        if backend_ready:
+            backend_status = "running"
+        else:
+            backend_status = "failed"
+            logger.warning(
+                "[ensure_runtime] backend healthcheck failed for project %s, marking session as degraded",
+                project_id,
+            )
+    else:
+        backend_status = "not_configured"
+
+    overall_status = "running"
+    if backend_configured and not backend_ready:
+        overall_status = "degraded"
+
     session = await sessions_service.create(
         {
             "user_id": user_id,
             "project_id": project_id,
             "container_name": container_name,
-            "status": "running",
+            "status": overall_status,
             "preview_port": ports.get("preview_port"),
             "frontend_port": frontend_port,
             "backend_port": backend_port,
             **preview_fields,
             "frontend_status": "running" if frontend_ready else "starting",
-            "backend_status": (
-                "running"
-                if backend_ready
-                else "starting"
-                if (contract and contract.backend)
-                else "stopped"
-            ),
+            "backend_status": backend_status,
         }
     )
     return session

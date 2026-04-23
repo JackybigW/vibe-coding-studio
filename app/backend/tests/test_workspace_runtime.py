@@ -305,7 +305,7 @@ async def test_ensure_runtime_sets_frontend_status_starting_on_timeout(memory_db
         session = await ensure_runtime_for_project(memory_db, user_id="user-1", project_id=42)
 
     assert session.frontend_status == "starting"
-    assert session.backend_status == "stopped"
+    assert session.backend_status == "not_configured"
 
 
 @pytest.mark.asyncio
@@ -412,4 +412,39 @@ async def test_ensure_runtime_sets_backend_status_starting_on_timeout(memory_db)
         session = await ensure_runtime_for_project(memory_db, user_id="user-1", project_id=42)
 
     assert session.frontend_status == "running"
-    assert session.backend_status == "starting"
+    assert session.backend_status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_ensure_runtime_sets_degraded_status_when_backend_healthcheck_fails(memory_db):
+    """When backend healthcheck fails, status should be 'degraded' not 'running'."""
+    from services.preview_contract import PreviewContract, PreviewServiceConfig
+
+    fake_contract = PreviewContract(
+        frontend=PreviewServiceConfig(command="pnpm run dev", healthcheck_path="/"),
+        backend=PreviewServiceConfig(command="python -m uvicorn main:app", healthcheck_path="/health"),
+    )
+
+    with (
+        patch("routers.workspace_runtime.SandboxRuntimeService") as MockSandbox,
+        patch("routers.workspace_runtime.ProjectWorkspaceService") as MockWorkspace,
+        patch("routers.workspace_runtime.load_preview_contract", return_value=fake_contract),
+    ):
+        mock_sandbox = MockSandbox.return_value
+        mock_sandbox.ensure_runtime = AsyncMock(return_value="atoms-user-1-42")
+        mock_sandbox.get_runtime_ports = AsyncMock(
+            return_value={"frontend_port": 3000, "backend_port": 8000, "preview_port": 3000}
+        )
+        mock_sandbox.start_preview_services = AsyncMock(return_value=(0, "ok", ""))
+        # Frontend succeeds, backend fails
+        mock_sandbox.wait_for_service = AsyncMock(side_effect=[True, False])
+
+        mock_paths = MagicMock()
+        mock_paths.host_root = Path("/tmp/fake")
+        MockWorkspace.return_value.resolve_paths.return_value = mock_paths
+
+        session = await ensure_runtime_for_project(memory_db, user_id="user-1", project_id=42)
+
+    assert session.frontend_status == "running"
+    assert session.backend_status == "failed"
+    assert session.status == "degraded"

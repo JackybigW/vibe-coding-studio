@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from routers.workspace_runtime import build_runtime_failure_report
+
 from openmanus_runtime.streaming import StreamingSWEAgent, build_agent_llm
 from openmanus_runtime.tool.bash import ContainerBashSession
 from openmanus_runtime.tool.file_operators import ProjectFileOperator
@@ -201,16 +203,6 @@ async def run_engineer_session(
             container_name=container_name,
             approval_gate=gate,
         )
-        llm = llm_builder(model)
-        logger.info("%s llm constructed model=%s", prefix, model)
-        agent = agent_cls.build_for_workspace(
-            llm=llm,
-            event_emitter=traced_event_sink,
-            file_operator=file_operator,
-            bash_session=bash_session,
-        )
-        logger.info("%s agent built name=%s", prefix, agent.name)
-
         from openmanus_runtime.tool.draft_plan import DraftPlanTool
         from openmanus_runtime.tool.load_skill import LoadSkillTool
         from openmanus_runtime.tool.todo_write import TodoWriteTool
@@ -218,33 +210,36 @@ async def run_engineer_session(
         from services.agent_task_store import AgentTaskStore
 
         draft_plan_service = get_agent_draft_plan_service()
-        draft_plan_tool = DraftPlanTool.create(
-            event_sink=traced_event_sink,
-            service=draft_plan_service,
-            project_id=project_id,
-            approval_gate=gate,
-        )
-        load_skill_tool = LoadSkillTool.create(loader=_skill_loader)
-        todo_write_tool = TodoWriteTool.create(
-            file_operator=file_operator,
-            event_sink=traced_event_sink,
-            task_store_factory=lambda: AgentTaskStore(db),
-            project_id=project_id,
-            approval_gate=gate,
-        )
-        if hasattr(agent, "available_tools") and agent.available_tools is not None:
-            agent.available_tools.add_tool(draft_plan_tool)
-            agent.available_tools.add_tool(load_skill_tool)
-            agent.available_tools.add_tool(todo_write_tool)
 
-        await traced_event_sink(
-            {
-                "type": "session",
-                "agent": agent.name,
-                "workspace_root": str(paths.host_root),
-                "status": "started",
-            }
-        )
+        def build_workspace_agent():
+            llm = llm_builder(model)
+            logger.info("%s llm constructed model=%s", prefix, model)
+            agent = agent_cls.build_for_workspace(
+                llm=llm,
+                event_emitter=traced_event_sink,
+                file_operator=file_operator,
+                bash_session=bash_session,
+            )
+            draft_plan_tool = DraftPlanTool.create(
+                event_sink=traced_event_sink,
+                service=draft_plan_service,
+                project_id=project_id,
+                approval_gate=gate,
+            )
+            load_skill_tool = LoadSkillTool.create(loader=_skill_loader)
+            todo_write_tool = TodoWriteTool.create(
+                file_operator=file_operator,
+                event_sink=traced_event_sink,
+                task_store_factory=lambda: AgentTaskStore(db),
+                project_id=project_id,
+                approval_gate=gate,
+            )
+            if hasattr(agent, "available_tools") and agent.available_tools is not None:
+                agent.available_tools.add_tool(draft_plan_tool)
+                agent.available_tools.add_tool(load_skill_tool)
+                agent.available_tools.add_tool(todo_write_tool)
+            logger.info("%s agent built name=%s", prefix, agent.name)
+            return agent
 
         readme_block = ""
         if bootstrap_ctx.requires_backend_readme:
@@ -275,6 +270,9 @@ async def run_engineer_session(
             'The "backend" object is optional when the app is frontend-only.\n'
             "If your app has a backend API, set the VITE_ATOMS_PREVIEW_BACKEND_BASE "
             "environment variable in the frontend so it can reach the backend.\n"
+            "If you build a React SPA with React Router or any client-side router, "
+            "it must work under the preview base path instead of assuming '/'. "
+            "For BrowserRouter, set a basename derived from the current preview path or an equivalent mechanism.\n"
             "Do not start the preview services yourself; focus on writing code and "
             "one-off verification commands.\n\n"
             "## Orchestration Workflow\n\n"
@@ -303,8 +301,22 @@ async def run_engineer_session(
         pushbacks_count = 0
         current_prompt = task_prompt
         result = None
+        agent = None
+        session_started = False
         
         while pushbacks_count <= MAX_PUSHBACKS:
+            agent = build_workspace_agent()
+            if not session_started:
+                await traced_event_sink(
+                    {
+                        "type": "session",
+                        "agent": agent.name,
+                        "workspace_root": str(paths.host_root),
+                        "status": "started",
+                    }
+                )
+                session_started = True
+
             result = await agent.run(current_prompt)
             
             request_key = gate.approved_request_key
@@ -501,6 +513,48 @@ async def run_engineer_session(
                     if not frontend_ready:
                         recorder.error("preview failed timeout")
                         await traced_event_sink({"type": "preview_failed", "reason": "timeout"})
+                    elif contract and contract.backend and not backend_ready:
+                        # Backend is configured but healthcheck timed out — emit failure and
+                        # feed a repair continuation prompt back to the agent.
+                        recorder.error("preview failed backend_healthcheck_timeout")
+                        diag = build_runtime_failure_report(
+                            service="backend",
+                            phase="healthcheck",
+                            reason_code="backend_healthcheck_timeout",
+                            detected_root=str(paths.host_root),
+                            attempted_command=contract.backend.command,
+                            stderr_tail="",
+                            suggested_fix=(
+                                "Ensure the backend server binds to 0.0.0.0 and the correct port, "
+                                "check for import errors or missing dependencies, and verify the "
+                                f"healthcheck path '{contract.backend.healthcheck_path}' responds with HTTP 200."
+                            ),
+                        )
+                        await traced_event_sink(
+                            {
+                                "type": "preview_failed",
+                                "reason": "backend_healthcheck_timeout",
+                                "diagnostic": diag,
+                            }
+                        )
+                        await traced_event_sink(
+                            {
+                                "type": "assistant",
+                                "agent": "system",
+                                "content": (
+                                    "CRITICAL PREVIEW FAILURE:\n"
+                                    f"- service: {diag['service']}\n"
+                                    f"- phase: {diag['phase']}\n"
+                                    f"- reason_code: {diag['reason_code']}\n"
+                                    f"- detected_root: {diag['detected_root']}\n"
+                                    f"- attempted_command: {diag['attempted_command']}\n"
+                                    f"- stderr_tail: {diag['stderr_tail']}\n"
+                                    f"- suggested_fix: {diag['suggested_fix']}\n"
+                                    "Fix the workspace so preview can start, "
+                                    "then update todo status and run verification."
+                                ),
+                            }
+                        )
                     else:
                         backend_status = "not_configured"
                         if contract and contract.backend:

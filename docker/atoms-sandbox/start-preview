@@ -84,6 +84,63 @@ install_node_deps_if_needed() {
   fi
 }
 
+resolve_backend_root() {
+  local workspace_root="$1"
+  if [[ -f "${workspace_root}/app/backend/requirements.txt" ]] || [[ -f "${workspace_root}/app/backend/pyproject.toml" ]]; then
+    echo "${workspace_root}/app/backend"
+    return 0
+  fi
+  if [[ -f "${workspace_root}/backend/requirements.txt" ]] || [[ -f "${workspace_root}/backend/pyproject.toml" ]]; then
+    echo "${workspace_root}/backend"
+    return 0
+  fi
+  echo ""
+}
+
+ensure_backend_venv() {
+  local backend_root="$1"
+  local venv_dir="${backend_root}/.venv"
+  if [[ ! -x "${venv_dir}/bin/python" ]]; then
+    python3 -m venv "${venv_dir}"
+  fi
+  if [[ -f "${backend_root}/requirements.txt" ]]; then
+    "${venv_dir}/bin/pip" install -q -r "${backend_root}/requirements.txt"
+  fi
+}
+
+normalize_backend_command() {
+  local backend_root="$1"
+  local command="$2"
+  local venv_python="${backend_root}/.venv/bin/python"
+  if [[ "${command}" == *"uv run uvicorn "* ]]; then
+    local import_target
+    import_target="$(python3 - "${command}" <<'PY'
+import sys, re
+m = re.search(r'uv run uvicorn\s+(\S+)', sys.argv[1])
+print(m.group(1) if m else "")
+PY
+)"
+    echo "cd ${backend_root} && ${venv_python} -m uvicorn ${import_target} --host 0.0.0.0 --port 8000"
+    return 0
+  fi
+  echo "${command}"
+}
+
+is_standard_pnpm_dev_command() {
+  local command="$1"
+  local trimmed="${command#"${command%%[![:space:]]*}"}"
+
+  if [[ "${trimmed}" == "pnpm run dev -- --host 0.0.0.0 --port 3000" ]] || [[ "${trimmed}" == "pnpm run dev"* ]]; then
+    return 0
+  fi
+
+  if [[ "${trimmed}" == cd*"&& pnpm run dev"* ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
 if [[ ! -f "${CONTRACT_PATH}" ]]; then
   exec /usr/local/bin/start-dev
 fi
@@ -129,7 +186,7 @@ FRONTEND_ROOT="$(resolve_frontend_root "${WORKSPACE_ROOT}")"
 
 install_node_deps_if_needed
 
-if [[ "${FRONTEND_COMMAND}" == "pnpm run dev -- --host 0.0.0.0 --port 3000" ]] || [[ "${FRONTEND_COMMAND}" == "pnpm run dev"* ]]; then
+if is_standard_pnpm_dev_command "${FRONTEND_COMMAND}"; then
   /usr/local/bin/start-dev >"${FRONTEND_LOG}" 2>&1
 else
   kill_listeners_on_port 3000
@@ -137,6 +194,15 @@ else
     cd "${FRONTEND_ROOT}"
     nohup bash -lc "${FRONTEND_COMMAND}" >"${FRONTEND_LOG}" 2>&1 &
   )
+fi
+
+BACKEND_ROOT=""
+if [[ -n "${BACKEND_COMMAND:-}" ]]; then
+  BACKEND_ROOT="$(resolve_backend_root "${WORKSPACE_ROOT}")"
+  if [[ -n "${BACKEND_ROOT}" ]]; then
+    ensure_backend_venv "${BACKEND_ROOT}"
+    BACKEND_COMMAND="$(normalize_backend_command "${BACKEND_ROOT}" "${BACKEND_COMMAND}")"
+  fi
 fi
 
 if [[ -n "${BACKEND_COMMAND:-}" ]]; then
