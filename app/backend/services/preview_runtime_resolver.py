@@ -9,6 +9,7 @@ consume without touching raw filenames or brittle string parsing.
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -213,7 +214,7 @@ def resolve_preview_runtime_model(
     frontend_root = _find_frontend_root(workspace_root, existing_paths)
 
     if frontend_root is not None:
-        manifest_frontend = (manifest or {}).get("frontend") if manifest else None
+        manifest_frontend = manifest.get("frontend") if manifest else None
         if isinstance(manifest_frontend, dict):
             frontend_command = manifest_frontend.get(
                 "command",
@@ -268,9 +269,12 @@ def resolve_preview_runtime_model(
                 )
             )
         else:
+            quoted_root = shlex.quote(backend_root)
+            quoted_venv_python = shlex.quote(f"{backend_root}/.venv/bin/python")
+            quoted_import_target = shlex.quote(import_target)
             start_command = (
-                f"cd {backend_root} && "
-                f"{backend_root}/.venv/bin/python -m uvicorn {import_target} "
+                f"cd {quoted_root} && "
+                f"{quoted_venv_python} -m uvicorn {quoted_import_target} "
                 f"--host 0.0.0.0 --port 8000"
             )
             backend_runtime = PreviewServiceRuntime(
