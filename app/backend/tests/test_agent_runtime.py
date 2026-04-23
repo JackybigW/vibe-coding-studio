@@ -1013,6 +1013,118 @@ def test_run_engineer_session_readme_missing_does_not_fail(tmp_path):
     assert "You must work inside this workspace root" in task_prompt
 
 
+@pytest.mark.asyncio
+async def test_engineer_runtime_emits_repair_continuation_for_backend_preview_failure(monkeypatch, tmp_path):
+    """When backend healthcheck times out, engineer_runtime should emit preview_failed
+    and an assistant repair continuation message instead of preview_ready."""
+    from services.engineer_runtime import run_engineer_session
+    from services.preview_contract import PreviewContract, PreviewServiceConfig
+    from unittest.mock import AsyncMock
+
+    events: list[dict] = []
+
+    class BackendFailWorkspacePaths:
+        host_root = tmp_path / "user-1" / "42"
+        container_root = tmp_path / "container"
+
+    class BackendFailWorkspaceService:
+        def resolve_paths(self, user_id, project_id):
+            BackendFailWorkspacePaths.host_root.mkdir(parents=True, exist_ok=True)
+            return BackendFailWorkspacePaths
+
+        def materialize_files(self, host_root, project_files):
+            pass
+
+        def snapshot_files(self, host_root):
+            return {}
+
+    class BackendFailSandboxService:
+        """Returns True for frontend (port 3000), False for backend (port 8000)."""
+
+        async def ensure_runtime(self, user_id, project_id, host_root):
+            return f"atoms-{user_id}-{project_id}"
+
+        async def exec(self, container_name, command):
+            return 0, "", ""
+
+        async def get_runtime_ports(self, container_name):
+            return {"frontend_port": 55555, "backend_port": 55556, "preview_port": 55555}
+
+        async def start_preview_services(self, container_name, env=None):
+            return 0, "", ""
+
+        async def wait_for_service(self, container_name, port, path="/", timeout_seconds=60.0, poll_interval_seconds=1.0):
+            if port == 3000:
+                return True
+            return False  # backend port 8000 fails
+
+    _fake_contract = PreviewContract(
+        frontend=PreviewServiceConfig(command="pnpm run dev", healthcheck_path="/"),
+        backend=PreviewServiceConfig(command="uvicorn main:app", healthcheck_path="/health"),
+    )
+
+    async def fake_event_sink(event: dict):
+        events.append(event)
+
+    async def fake_files_get_list(self, **kwargs):
+        return {"items": []}
+
+    async def fake_messages_get_list(self, **kwargs):
+        return {"items": []}
+
+    monkeypatch.setattr(
+        "services.agent_bootstrap.classify_user_request_async",
+        AsyncMock(return_value=BootstrapContext(mode="implementation", requires_backend_readme=False, requires_draft_plan=False)),
+    )
+    monkeypatch.setattr("services.project_files.Project_filesService.get_list", fake_files_get_list)
+    monkeypatch.setattr("services.messages.MessagesService.get_list", fake_messages_get_list)
+
+    class _FakeAgentForRepair:
+        name = "swe"
+
+        def __init__(self, *args, event_emitter=None, **kwargs):
+            self._emit = event_emitter
+
+        async def run(self, request: str):
+            return "finished"
+
+        @classmethod
+        def build_for_workspace(cls, llm, event_emitter, file_operator, bash_session):
+            return cls(event_emitter=event_emitter)
+
+    success = await run_engineer_session(
+        db=FakeDB(),
+        user_id="user-1",
+        project_id=42,
+        prompt="build a todo app with backend API",
+        model=None,
+        event_sink=fake_event_sink,
+        workspace_service_factory=lambda: BackendFailWorkspaceService(),
+        sandbox_service_factory=lambda: BackendFailSandboxService(),
+        agent_cls=_FakeAgentForRepair,
+        llm_builder=lambda model: None,
+        preview_contract_loader=lambda host_root: _fake_contract,
+    )
+
+    assert success is True
+
+    event_types = [e.get("type") for e in events]
+
+    # Must emit preview_failed, not preview_ready
+    assert "preview_failed" in event_types, f"expected preview_failed in {event_types}"
+    assert "preview_ready" not in event_types, f"unexpected preview_ready in {event_types}"
+
+    failed_event = next(e for e in events if e.get("type") == "preview_failed")
+    assert failed_event.get("reason") == "backend_healthcheck_timeout"
+
+    # Must emit an assistant repair continuation message
+    assistant_events = [e for e in events if e.get("type") == "assistant" and e.get("agent") == "system"]
+    assert assistant_events, "expected at least one system assistant repair message"
+    repair_msg = assistant_events[-1]["content"]
+    assert "CRITICAL PREVIEW FAILURE" in repair_msg
+    assert "backend_healthcheck_timeout" in repair_msg
+
+
 def test_task_prompt_contains_orchestration_workflow_instructions(monkeypatch):
     """task_prompt must contain the orchestration workflow section so the agent writes the plan file."""
     captured_prompt = {}

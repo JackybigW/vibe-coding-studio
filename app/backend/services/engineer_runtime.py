@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from routers.workspace_runtime import build_runtime_failure_report
+
 from openmanus_runtime.streaming import StreamingSWEAgent, build_agent_llm
 from openmanus_runtime.tool.bash import ContainerBashSession
 from openmanus_runtime.tool.file_operators import ProjectFileOperator
@@ -511,6 +513,48 @@ async def run_engineer_session(
                     if not frontend_ready:
                         recorder.error("preview failed timeout")
                         await traced_event_sink({"type": "preview_failed", "reason": "timeout"})
+                    elif contract and contract.backend and not backend_ready:
+                        # Backend is configured but healthcheck timed out — emit failure and
+                        # feed a repair continuation prompt back to the agent.
+                        recorder.error("preview failed backend_healthcheck_timeout")
+                        diag = build_runtime_failure_report(
+                            service="backend",
+                            phase="healthcheck",
+                            reason_code="backend_healthcheck_timeout",
+                            detected_root=str(paths.host_root),
+                            attempted_command=contract.backend.command,
+                            stderr_tail="",
+                            suggested_fix=(
+                                "Ensure the backend server binds to 0.0.0.0 and the correct port, "
+                                "check for import errors or missing dependencies, and verify the "
+                                f"healthcheck path '{contract.backend.healthcheck_path}' responds with HTTP 200."
+                            ),
+                        )
+                        await traced_event_sink(
+                            {
+                                "type": "preview_failed",
+                                "reason": "backend_healthcheck_timeout",
+                                "diagnostic": diag,
+                            }
+                        )
+                        await traced_event_sink(
+                            {
+                                "type": "assistant",
+                                "agent": "system",
+                                "content": (
+                                    "CRITICAL PREVIEW FAILURE:\n"
+                                    f"- service: {diag['service']}\n"
+                                    f"- phase: {diag['phase']}\n"
+                                    f"- reason_code: {diag['reason_code']}\n"
+                                    f"- detected_root: {diag['detected_root']}\n"
+                                    f"- attempted_command: {diag['attempted_command']}\n"
+                                    f"- stderr_tail: {diag['stderr_tail']}\n"
+                                    f"- suggested_fix: {diag['suggested_fix']}\n"
+                                    "Fix the workspace so preview can start, "
+                                    "then update todo status and run verification."
+                                ),
+                            }
+                        )
                     else:
                         backend_status = "not_configured"
                         if contract and contract.backend:
