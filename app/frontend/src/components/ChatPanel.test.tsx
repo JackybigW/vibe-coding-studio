@@ -19,6 +19,7 @@ const realtimeHarness: {
 };
 
 const messageCreateMock = vi.hoisted(() => vi.fn());
+const createAgentRealtimeSessionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: () => ({
@@ -47,7 +48,7 @@ vi.mock("@/lib/authToken", () => ({
 }));
 
 vi.mock("@/lib/agentRealtime", () => ({
-  createAgentRealtimeSession: vi.fn(({ onEvent }) => {
+  createAgentRealtimeSession: createAgentRealtimeSessionMock.mockImplementation(({ onEvent }) => {
     realtimeHarness.onEvent = onEvent;
     return {
       sendUserMessage: realtimeHarness.sendUserMessage,
@@ -79,6 +80,7 @@ describe("ChatPanel", () => {
     realtimeHarness.sendUserMessage.mockReset();
     realtimeHarness.stopRun.mockReset();
     realtimeHarness.approveDraftPlan.mockReset();
+    createAgentRealtimeSessionMock.mockClear();
     messageCreateMock.mockReset();
     messageCreateMock.mockResolvedValue({});
     vi.stubGlobal(
@@ -117,15 +119,63 @@ describe("ChatPanel", () => {
 
     act(() => {
       realtimeHarness.onEvent?.({ type: "progress", label: "Editing src/App.tsx" });
+      realtimeHarness.onEvent?.({ type: "terminal.log", content: "$ pnpm test" });
     });
 
     expect(screen.queryByText("Editing src/App.tsx")).not.toBeInTheDocument();
+    expect(screen.queryByText("$ pnpm test")).not.toBeInTheDocument();
     const progressToggle = screen.getByRole("button", { name: /progress/i });
     expect(progressToggle).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(progressToggle);
 
     expect(screen.getByText("Editing src/App.tsx")).toBeInTheDocument();
+    expect(screen.queryByText("$ pnpm test")).not.toBeInTheDocument();
+  });
+
+  it("cancels a run launched during the session bootstrap window when Stop is clicked first", async () => {
+    let resolveFetch!: (value: { ok: boolean; status: number; json: () => Promise<{ ticket: string }> }) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          })
+      )
+    );
+
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /stop agent/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /stop agent/i }));
+
+    resolveFetch({
+      ok: true,
+      status: 200,
+      json: async () => ({ ticket: "ticket-123" }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /send message/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /stop agent/i })).not.toBeInTheDocument();
+      expect(realtimeHarness.sendUserMessage).not.toHaveBeenCalled();
+      expect(createAgentRealtimeSessionMock).not.toHaveBeenCalled();
+    });
   });
 
   it("swaps the send button for a Stop agent control while a run is active", async () => {

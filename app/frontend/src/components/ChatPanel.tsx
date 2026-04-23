@@ -108,6 +108,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const activeAssistantRenderedRef = useRef("");
   const activeAssistantAgentRef = useRef("engineer");
   const ignoreAssistantEventsRef = useRef(false);
+  const stopRequestedRef = useRef(false);
   const sessionGenerationRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -323,6 +324,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
 
   const handleSend = async () => {
     if (!input.trim() || isLoading || isStopping) return;
+    stopRequestedRef.current = false;
 
     const userMsg: Message = {
       role: "user",
@@ -380,6 +382,13 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       }
 
       const { ticket } = (await response.json()) as { ticket: string };
+      if (stopRequestedRef.current) {
+        stopRequestedRef.current = false;
+        setIsStopping(false);
+        setIsLoading(false);
+        setIsStreaming(false);
+        return;
+      }
       const apiBaseUrl = new URL(getAPIBaseURL());
       const wsProtocol = apiBaseUrl.protocol === "https:" ? "wss:" : "ws:";
       const session = createAgentRealtimeSession({
@@ -414,6 +423,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   };
 
   const handleStop = () => {
+    stopRequestedRef.current = true;
     setIsStopping(true);
     sessionRef.current?.stopRun();
     ignoreAssistantEventsRef.current = true;
