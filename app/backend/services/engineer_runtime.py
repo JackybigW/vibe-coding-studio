@@ -126,14 +126,6 @@ async def run_engineer_session(
         workspace_service.materialize_files(paths.host_root, file_records)
         await log_step(f"materialized {len(file_records)} project files")
 
-        from services.agent_bootstrap import classify_user_request_async
-
-        bootstrap_ctx = await classify_user_request_async(prompt)
-        await log_step(
-            "request classified "
-            f"mode={bootstrap_ctx.mode} requires_draft_plan={bootstrap_ctx.requires_draft_plan}"
-        )
-
         messages_service = MessagesService(db)
         message_history_result = await messages_service.get_list(
             skip=0,
@@ -159,6 +151,14 @@ async def run_engineer_session(
             json.dumps(persisted_history, ensure_ascii=False),
         )
         await log_step(f"loaded {len(persisted_history)} persisted messages")
+
+        from services.agent_bootstrap import classify_user_request_async
+
+        bootstrap_ctx = await classify_user_request_async(prompt, persisted_history)
+        await log_step(
+            "request classified "
+            f"mode={bootstrap_ctx.mode} requires_draft_plan={bootstrap_ctx.requires_draft_plan}"
+        )
 
         if bootstrap_ctx.mode == "conversation":
             await log_step("conversation request detected; skipping sandbox startup")

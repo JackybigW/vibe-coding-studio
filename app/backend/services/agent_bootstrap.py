@@ -110,27 +110,39 @@ Edge cases:
 - "Can you / Could you / Please + [action]" → implementation
 - "How do I / What's the best way to / Should we" → conversation
 - "Can I / Should I" (self-question) → conversation
+- Testing or populating data for an app that was just built → implementation (it requires modifying the app/database)
 
 Respond with valid JSON only, no markdown fences."""
 
 
-async def _classify_with_llm(prompt: str) -> _ClassificationResult:
+async def _classify_with_llm(prompt: str, history: list[dict] = None) -> _ClassificationResult:
     from langchain_deepseek import ChatDeepSeek
 
     api_key = os.getenv("DEEPSEEK_API_KEY")
     llm = ChatDeepSeek(model="deepseek-chat", api_key=api_key, temperature=0)
     structured_llm = llm.with_structured_output(_ClassificationResult, method="json_mode")
-    result = await structured_llm.ainvoke([
-        {"role": "system", "content": _CLASSIFICATION_SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ])
+    
+    messages = [{"role": "system", "content": _CLASSIFICATION_SYSTEM_PROMPT}]
+    
+    if history:
+        # Include up to last 10 messages for context
+        for msg in history[-10:]:
+            # Convert roles to standard OpenAI/Langchain roles
+            role = "assistant" if msg.get("role") == "assistant" else "user"
+            content = msg.get("content", "")
+            if content:
+                messages.append({"role": role, "content": content})
+                
+    messages.append({"role": "user", "content": prompt})
+    
+    result = await structured_llm.ainvoke(messages)
     return result
 
 
-async def classify_user_request_async(prompt: str) -> BootstrapContext:
+async def classify_user_request_async(prompt: str, history: list[dict] = None) -> BootstrapContext:
     """LLM-based classifier with regex fallback on error."""
     try:
-        result = await _classify_with_llm(prompt)
+        result = await _classify_with_llm(prompt, history)
         return BootstrapContext(
             mode=result.mode,
             requires_backend_readme=result.requires_backend_readme,
