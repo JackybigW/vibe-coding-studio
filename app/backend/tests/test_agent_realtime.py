@@ -12,7 +12,9 @@ from starlette.websockets import WebSocketDisconnect
 from core.database import Base
 from models.agent_realtime_tickets import AgentRealtimeTickets
 from models.projects import Projects
+from openmanus_runtime.tool.draft_plan import DraftPlanTool
 from routers.agent_realtime import router
+from services.agent_draft_plan import AgentDraftPlanService
 from services.agent_realtime import AgentRealtimeService
 
 
@@ -286,31 +288,32 @@ def test_websocket_user_message_streams_engineer_reply(monkeypatch, tmp_path):
 def test_websocket_emits_draft_plan_and_blocks_execution_until_approved(monkeypatch, tmp_path):
     app, engine, _, _ = _build_environment(tmp_path, monkeypatch)
 
+    draft_plan_service = AgentDraftPlanService()
     execution_started = []
+    execution_completed = []
 
     async def fake_run_engineer_session(*, event_sink, project_id, **kwargs):
-        await event_sink({
-            "type": "draft_plan.start",
-            "request_key": "req-1",
-        })
-        await event_sink({
-            "type": "draft_plan.item",
-            "request_key": "req-1",
-            "item": {"id": "1", "text": "Create homepage"},
-        })
-        await event_sink({
-            "type": "draft_plan.item",
-            "request_key": "req-1",
-            "item": {"id": "2", "text": "Add billing page"},
-        })
-        await event_sink({
-            "type": "draft_plan.ready",
-            "request_key": "req-1",
-        })
-        # This simulates the tool blocking — the agent is running but implementation hasn't started
-        execution_started.append(False)
+        execution_started.append(True)
+        tool = DraftPlanTool.create(
+            event_sink=event_sink,
+            service=draft_plan_service,
+            project_id=project_id,
+            approval_timeout=1.0,
+        )
+        await tool.execute(
+            request_key="req-1",
+            items=[
+                {"id": "1", "text": "Create homepage"},
+                {"id": "2", "text": "Add billing page"},
+                {"id": "3", "text": "Wire deployment"},
+            ],
+        )
+        execution_completed.append(True)
+        await event_sink({"type": "assistant", "agent": "swe", "content": "Implementation started"})
+        return True
 
     monkeypatch.setattr("routers.agent_realtime.run_engineer_session", fake_run_engineer_session, raising=False)
+    monkeypatch.setattr("routers.agent_realtime.get_agent_draft_plan_service", lambda: draft_plan_service)
 
     with TestClient(app) as client:
         ticket = client.post("/api/v1/agent/session-ticket", json={"project_id": 42, "model": "gpt-4.1"}).json()["ticket"]
@@ -336,10 +339,43 @@ def test_websocket_emits_draft_plan_and_blocks_execution_until_approved(monkeypa
                 "item": {"id": "2", "text": "Add billing page"},
             }
             assert websocket.receive_json() == {
+                "type": "draft_plan.item",
+                "request_key": "req-1",
+                "item": {"id": "3", "text": "Wire deployment"},
+            }
+            assert websocket.receive_json() == {
                 "type": "draft_plan.ready",
                 "request_key": "req-1",
             }
-            assert execution_started == [False]
+            time.sleep(0.05)
+            assert execution_started == [True]
+            assert execution_completed == []
+            assert draft_plan_service.get(42, "req-1") is not None
+            assert draft_plan_service.get(42, "req-1").approved is False
+
+            websocket.send_json({"type": "user.approve_plan", "request_key": "req-1"})
+
+            assert websocket.receive_json() == {
+                "type": "draft_plan.approved",
+                "request_key": "req-1",
+            }
+            assert websocket.receive_json() == {
+                "type": "assistant.delta",
+                "agent": "swe",
+                "content": "Implementation started",
+            }
+            assert websocket.receive_json() == {
+                "type": "assistant.message_done",
+                "agent": "swe",
+            }
+            assert websocket.receive_json() == {
+                "type": "session.state",
+                "status": "completed",
+                "project_id": 42,
+                "assistant_role": "engineer",
+            }
+            assert execution_completed == [True]
+            assert draft_plan_service.get(42, "req-1").approved is True
 
     asyncio.run(engine.dispose())
 
