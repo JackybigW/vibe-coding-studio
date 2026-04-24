@@ -88,7 +88,7 @@ function createTraceId(): string {
 
 export default function ChatPanel({ mode }: ChatPanelProps) {
   const { user, isAuthenticated } = useAuth();
-  const { projectId, addTerminalLog, applyRealtimeEvent, progressItems, taskSummaries, sessionStatus } = useWorkspace();
+  const { projectId, addTerminalLog, applyRealtimeEvent, progressItems, taskSummaries } = useWorkspace();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -108,8 +108,6 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const activeAssistantRawRef = useRef("");
   const activeAssistantRenderedRef = useRef("");
   const activeAssistantAgentRef = useRef("engineer");
-  const assistantMessageDoneRef = useRef(false);
-  const pendingRunTerminalStateRef = useRef<string | null>(null);
   const ignoreAssistantEventsRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const bootstrapAbortControllerRef = useRef<AbortController | null>(null);
@@ -187,9 +185,9 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     setIsTyping(false);
   }, []);
 
-  const clearActiveAssistantState = useCallback(() => {
+  const resetActiveAssistantState = useCallback(() => {
     stopTypingLoop();
-    assistantMessageDoneRef.current = false;
+    ignoreAssistantEventsRef.current = true;
     activeAssistantRawRef.current = "";
     activeAssistantRenderedRef.current = "";
     activeAssistantAgentRef.current = "engineer";
@@ -197,22 +195,12 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     setActiveAssistantAgent("engineer");
   }, [stopTypingLoop]);
 
-  const endRunState = useCallback(() => {
-    ignoreAssistantEventsRef.current = true;
-    pendingRunTerminalStateRef.current = null;
-    clearActiveAssistantState();
+  const settleStreamingState = useCallback(() => {
+    resetActiveAssistantState();
     setIsLoading(false);
     setIsStreaming(false);
     setIsStopping(false);
-  }, [clearActiveAssistantState]);
-
-  const finishRunIfPending = useCallback(() => {
-    if (pendingRunTerminalStateRef.current === null) {
-      return;
-    }
-    pendingRunTerminalStateRef.current = null;
-    endRunState();
-  }, [endRunState]);
+  }, [resetActiveAssistantState]);
 
   const commitAssistantReply = useCallback(
     (content: string) => {
@@ -227,10 +215,9 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       };
       appendMessage(assistantMessage);
       void saveMessage(assistantMessage);
-      clearActiveAssistantState();
-      finishRunIfPending();
+      settleStreamingState();
     },
-    [appendMessage, clearActiveAssistantState, finishRunIfPending, saveMessage, selectedModel]
+    [appendMessage, saveMessage, selectedModel, settleStreamingState]
   );
 
   useEffect(() => {
@@ -250,15 +237,6 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
 
       if (backlog <= 0) {
         setIsTyping(false);
-        if (assistantMessageDoneRef.current) {
-          const content = raw.trim();
-          if (content) {
-            commitAssistantReply(content);
-            return;
-          }
-          clearActiveAssistantState();
-          finishRunIfPending();
-        }
         return;
       }
 
@@ -272,15 +250,6 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
 
       if (nextRendered.length >= raw.length) {
         setIsTyping(false);
-        if (assistantMessageDoneRef.current) {
-          const content = raw.trim();
-          if (content) {
-            commitAssistantReply(content);
-            return;
-          }
-          clearActiveAssistantState();
-          finishRunIfPending();
-        }
       }
     }, TYPEWRITER_TICK_MS);
 
@@ -290,7 +259,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         typingTimerRef.current = null;
       }
     };
-  }, [activeAssistantRendered, clearActiveAssistantState, commitAssistantReply, finishRunIfPending, isTyping]);
+  }, [isTyping, activeAssistantRendered]);
 
   const logAgentTrace = useCallback((traceId: string, stage: string, details?: Record<string, unknown>) => {
     const suffix = details ? ` ${JSON.stringify(details)}` : "";
@@ -356,41 +325,26 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         if (ignoreAssistantEventsRef.current) {
           return;
         }
-        assistantMessageDoneRef.current = true;
-        const raw = activeAssistantRawRef.current;
-        const content = raw.trim();
-        if (!content) {
-          clearActiveAssistantState();
-          finishRunIfPending();
+        const content = activeAssistantRawRef.current.trim();
+        if (content) {
+          commitAssistantReply(content);
           return;
         }
-        if (activeAssistantRenderedRef.current.length >= raw.length && !isTyping) {
-          commitAssistantReply(content);
-        }
+        settleStreamingState();
         return;
       }
 
       if (event.type === "run.stopped") {
-        endRunState();
+        settleStreamingState();
         addTerminalLog("$ engineer run stopped");
         return;
       }
 
       if (event.type === "session.state" && (event.status === "completed" || event.status === "failed")) {
-        if (stopRequestedRef.current) {
-          endRunState();
+        if (!stopRequestedRef.current) {
           return;
         }
-        pendingRunTerminalStateRef.current = event.status;
-        const raw = activeAssistantRawRef.current;
-        const content = raw.trim();
-        if (!content) {
-          finishRunIfPending();
-          return;
-        }
-        if (assistantMessageDoneRef.current && activeAssistantRenderedRef.current.length >= raw.length && !isTyping) {
-          commitAssistantReply(content);
-        }
+        settleStreamingState();
         return;
       }
 
@@ -401,23 +355,14 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
           content: event.error || event.message || "Unknown error",
           created_at: new Date().toISOString(),
         });
-        endRunState();
+        settleStreamingState();
       }
     },
-    [
-      addTerminalLog,
-      appendMessage,
-      applyRealtimeEvent,
-      clearActiveAssistantState,
-      commitAssistantReply,
-      endRunState,
-      finishRunIfPending,
-      isTyping,
-    ]
+    [addTerminalLog, appendMessage, applyRealtimeEvent, commitAssistantReply, settleStreamingState]
   );
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading || isStopping || sessionStatus === "running") return;
+    if (!input.trim() || isLoading || isStopping) return;
     stopRequestedRef.current = false;
 
     const userMsg: Message = {
@@ -447,8 +392,6 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       ignoreAssistantEventsRef.current = false;
       stopTypingLoop();
       activeAssistantAgentRef.current = "engineer";
-      assistantMessageDoneRef.current = false;
-      pendingRunTerminalStateRef.current = null;
       activeAssistantRawRef.current = "";
       activeAssistantRenderedRef.current = "";
       setActiveAssistantAgent("engineer");
@@ -516,12 +459,12 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       });
       console.error("Chat error:", err);
       appendMessage({
-          role: "assistant",
-          agent: "swe",
-          content:
-            err instanceof Error
-              ? err.message
-              : "Sorry, I encountered an error. Please try again.",
+        role: "assistant",
+        agent: "swe",
+        content:
+          err instanceof Error
+            ? err.message
+            : "Sorry, I encountered an error. Please try again.",
         created_at: new Date().toISOString(),
       });
       setIsLoading(false);
@@ -547,6 +490,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     ignoreAssistantEventsRef.current = true;
     stopTypingLoop();
     setIsLoading(false);
+    setIsStreaming(false);
     addTerminalLog("$ engineer stop requested");
   };
 
@@ -561,14 +505,12 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (isLoading || isStopping || sessionStatus === "running") {
+      if (isLoading || isStopping) {
         return;
       }
       handleSend();
     }
   };
-
-  const isRunActive = isLoading || isStopping || sessionStatus === "running";
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -855,11 +797,11 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                 ? "Describe what you want to build..."
                 : "Create a project first to start chatting"
             }
-            disabled={!projectId || isRunActive}
+            disabled={!projectId || isLoading}
             className="flex-1 bg-transparent text-sm text-white placeholder:text-[#52525B] resize-none outline-none min-h-[24px] max-h-[200px]"
             rows={1}
           />
-          {isRunActive ? (
+          {isStreaming || isStopping ? (
             <Button
               size="sm"
               variant="ghost"
@@ -873,7 +815,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
             <Button
               size="sm"
               onClick={handleSend}
-              disabled={!input.trim() || isRunActive || !projectId}
+              disabled={!input.trim() || isLoading || !projectId}
               aria-label="Send message"
               className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white p-1 mb-0.5 h-7 w-7"
             >

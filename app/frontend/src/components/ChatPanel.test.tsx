@@ -69,14 +69,6 @@ function WorkspaceHarness({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-async function advanceTypewriter(ticks = 24, steps = 24) {
-  for (let i = 0; i < steps; i += 1) {
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(ticks);
-    });
-  }
-}
-
 describe("ChatPanel", () => {
   afterEach(() => {
     cleanup();
@@ -385,73 +377,11 @@ describe("ChatPanel", () => {
         realtimeHarness.onEvent?.({ type: "assistant.message_done", agent: "swe" });
       });
 
-      await advanceTypewriter();
-
-      expect(
-        screen.getByText(
-          (_, element) => element?.tagName === "P" && element.textContent === assistantText
-        )
-      ).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps typewriter rendering active after message_done until the visible text catches up", async () => {
-    render(
-      <WorkspaceProvider>
-        <WorkspaceHarness>
-          <ChatPanel mode="engineer" />
-        </WorkspaceHarness>
-      </WorkspaceProvider>
-    );
-
-    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
-      target: { value: "build auth" },
-    });
-    const buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[buttons.length - 1]);
-
-    await waitFor(() => {
-      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
-    });
-
-    vi.useFakeTimers();
-    try {
-      const replyText = "Message done should not instantly dump the whole answer";
-
-      act(() => {
-        realtimeHarness.onEvent?.({ type: "assistant.delta", agent: "swe", content: replyText });
-      });
-
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(24);
+        await vi.runAllTimersAsync();
       });
 
-      const partialBubble = screen.getByText(
-        (_, element) => element?.tagName === "P" && (element.textContent?.startsWith("Message") ?? false)
-      );
-      const renderedBeforeDone = partialBubble.textContent;
-
-      act(() => {
-        realtimeHarness.onEvent?.({ type: "assistant.message_done", agent: "swe" });
-      });
-
-      expect(
-        screen.getByText(
-          (_, element) => element?.tagName === "P" && (element.textContent?.startsWith("Message") ?? false)
-        ).textContent
-      ).toBe(renderedBeforeDone);
-      expect(screen.getByRole("button", { name: /stop agent/i })).toBeInTheDocument();
-      expect(screen.queryByText(replyText)).not.toBeInTheDocument();
-
-      await advanceTypewriter();
-
-      expect(
-        screen.getByText(
-          (_, element) => element?.tagName === "P" && element.textContent === replyText
-        )
-      ).toBeInTheDocument();
+      expect(screen.getByText(assistantText)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -641,13 +571,11 @@ describe("ChatPanel", () => {
         realtimeHarness.onEvent?.({ type: "assistant.message_done", agent: "swe" });
       });
 
-      await advanceTypewriter();
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
 
-      expect(
-        screen.getByText(
-          (_, element) => element?.tagName === "P" && element.textContent === replyText
-        )
-      ).toBeInTheDocument();
+      expect(screen.getByText(replyText)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /send message/i })).toBeInTheDocument();
       expect(messageCreateMock.mock.calls.filter(([payload]) => payload.data.role === "assistant")).toHaveLength(1);
     } finally {
@@ -706,13 +634,11 @@ describe("ChatPanel", () => {
         newSessionEvent?.({ type: "assistant.message_done", agent: "swe" });
       });
 
-      await advanceTypewriter();
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
 
-      expect(
-        screen.getByText(
-          (_, element) => element?.tagName === "P" && element.textContent === "NEW CLEAN"
-        )
-      ).toBeInTheDocument();
+      expect(screen.getByText("NEW CLEAN")).toBeInTheDocument();
       expect(screen.queryByText("OLD STALE")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
