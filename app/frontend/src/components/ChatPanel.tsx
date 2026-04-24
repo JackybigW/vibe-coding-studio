@@ -272,10 +272,16 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       applyRealtimeEvent(event);
 
       if (event.type === "draft_plan.start") {
+        if (ignoreAssistantEventsRef.current || stopRequestedRef.current) {
+          return;
+        }
         setPendingDraftPlan({ request_key: event.request_key, items: [], isReady: false });
         return;
       }
       if (event.type === "draft_plan.item") {
+        if (ignoreAssistantEventsRef.current || stopRequestedRef.current) {
+          return;
+        }
         setPendingDraftPlan((current) => {
           if (!current || current.request_key !== event.request_key) {
             return current;
@@ -288,6 +294,9 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
         return;
       }
       if (event.type === "draft_plan.ready") {
+        if (ignoreAssistantEventsRef.current || stopRequestedRef.current) {
+          return;
+        }
         setPendingDraftPlan((current) => {
           if (!current || current.request_key !== event.request_key) {
             return current;

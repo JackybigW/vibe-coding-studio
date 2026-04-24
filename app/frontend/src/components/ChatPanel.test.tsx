@@ -241,8 +241,7 @@ describe("ChatPanel", () => {
     fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
       target: { value: "build auth" },
     });
-    const buttons = screen.getAllByRole("button");
-    fireEvent.click(buttons[buttons.length - 1]);
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => {
       expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
@@ -294,6 +293,39 @@ describe("ChatPanel", () => {
     expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
   });
 
+  it("calls approveDraftPlan with the current draft plan request_key", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
+    });
+
+    act(() => {
+      realtimeHarness.onEvent?.({ type: "draft_plan.start", request_key: "req-7" });
+      realtimeHarness.onEvent?.({
+        type: "draft_plan.item",
+        request_key: "req-7",
+        item: { id: "1", text: "Create homepage" },
+      });
+      realtimeHarness.onEvent?.({ type: "draft_plan.ready", request_key: "req-7" });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+
+    expect(realtimeHarness.approveDraftPlan).toHaveBeenCalledWith({ requestKey: "req-7" });
+  });
+
   it("clears the pending draft plan card when draft_plan.approved arrives", async () => {
     render(
       <WorkspaceProvider>
@@ -328,6 +360,75 @@ describe("ChatPanel", () => {
 
     act(() => {
       realtimeHarness.onEvent?.({ type: "draft_plan.approved", request_key: "req-1" });
+    });
+
+    expect(screen.queryByText("Draft Plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Create homepage")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+  });
+
+  it("does not clear the current draft plan card when draft_plan.approved has a different request_key", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
+    });
+
+    act(() => {
+      realtimeHarness.onEvent?.({ type: "draft_plan.start", request_key: "req-1" });
+      realtimeHarness.onEvent?.({
+        type: "draft_plan.item",
+        request_key: "req-1",
+        item: { id: "1", text: "Create homepage" },
+      });
+      realtimeHarness.onEvent?.({ type: "draft_plan.ready", request_key: "req-1" });
+      realtimeHarness.onEvent?.({ type: "draft_plan.approved", request_key: "req-2" });
+    });
+
+    expect(screen.getByText("Draft Plan")).toBeInTheDocument();
+    expect(screen.getByText("Create homepage")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
+  });
+
+  it("ignores late draft plan events after Stop is requested", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /stop agent/i }));
+
+    act(() => {
+      realtimeHarness.onEvent?.({ type: "draft_plan.start", request_key: "req-1" });
+      realtimeHarness.onEvent?.({
+        type: "draft_plan.item",
+        request_key: "req-1",
+        item: { id: "1", text: "Create homepage" },
+      });
+      realtimeHarness.onEvent?.({ type: "draft_plan.ready", request_key: "req-1" });
     });
 
     expect(screen.queryByText("Draft Plan")).not.toBeInTheDocument();
