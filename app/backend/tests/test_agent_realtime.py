@@ -287,13 +287,25 @@ def test_websocket_emits_draft_plan_and_blocks_execution_until_approved(monkeypa
     app, engine, _, _ = _build_environment(tmp_path, monkeypatch)
 
     execution_started = []
-    plan_events = []
 
     async def fake_run_engineer_session(*, event_sink, project_id, **kwargs):
         await event_sink({
-            "type": "draft_plan.pending",
+            "type": "draft_plan.start",
             "request_key": "req-1",
-            "items": [{"id": "1", "text": "Create homepage"}],
+        })
+        await event_sink({
+            "type": "draft_plan.item",
+            "request_key": "req-1",
+            "item": {"id": "1", "text": "Create homepage"},
+        })
+        await event_sink({
+            "type": "draft_plan.item",
+            "request_key": "req-1",
+            "item": {"id": "2", "text": "Add billing page"},
+        })
+        await event_sink({
+            "type": "draft_plan.ready",
+            "request_key": "req-1",
         })
         # This simulates the tool blocking — the agent is running but implementation hasn't started
         execution_started.append(False)
@@ -309,9 +321,24 @@ def test_websocket_emits_draft_plan_and_blocks_execution_until_approved(monkeypa
             websocket.send_json({"type": "user.message", "project_id": 42, "prompt": "build auth"})
             websocket.receive_json()  # running state
 
-            draft_plan_event = websocket.receive_json()
-            assert draft_plan_event["type"] == "draft_plan.pending"
-            assert "items" in draft_plan_event
+            assert websocket.receive_json() == {
+                "type": "draft_plan.start",
+                "request_key": "req-1",
+            }
+            assert websocket.receive_json() == {
+                "type": "draft_plan.item",
+                "request_key": "req-1",
+                "item": {"id": "1", "text": "Create homepage"},
+            }
+            assert websocket.receive_json() == {
+                "type": "draft_plan.item",
+                "request_key": "req-1",
+                "item": {"id": "2", "text": "Add billing page"},
+            }
+            assert websocket.receive_json() == {
+                "type": "draft_plan.ready",
+                "request_key": "req-1",
+            }
             assert execution_started == [False]
 
     asyncio.run(engine.dispose())

@@ -65,9 +65,18 @@ class DraftPlanTool(BaseTool):
         )
         approval_event = self._service.put(state)
         await self._event_sink({
-            "type": "draft_plan.pending",
+            "type": "draft_plan.start",
             "request_key": request_key,
-            "items": items,
+        })
+        for item in items:
+            await self._event_sink({
+                "type": "draft_plan.item",
+                "request_key": request_key,
+                "item": item,
+            })
+        await self._event_sink({
+            "type": "draft_plan.ready",
+            "request_key": request_key,
         })
         try:
             await asyncio.wait_for(approval_event.wait(), timeout=self._approval_timeout)
