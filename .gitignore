@@ -54,3 +54,8 @@ app/backend/alembic/versions/__pycache__/
 
 # Local planning / instruction artifacts
 docs/superpowers/plans/
+
+# AI assistant config (local only)
+CLAUDE.md
+gemini.md
+GEMINI.md
