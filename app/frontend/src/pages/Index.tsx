@@ -34,13 +34,13 @@ const FEATURE_DEPLOY = "https://mgx-backend-cdn.metadl.com/generate/images/10691
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { isAuthenticated, login } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("annual");
   const [isCreating, setIsCreating] = useState(false);
 
   const handleStartBuilding = useCallback(async () => {
     if (!isAuthenticated) {
-      await login();
+      navigate("/register");
       return;
     }
 
@@ -71,7 +71,7 @@ export default function LandingPage() {
     } finally {
       setIsCreating(false);
     }
-  }, [isAuthenticated, login, navigate]);
+  }, [isAuthenticated, navigate]);
 
   const pricingPlans = [
     {

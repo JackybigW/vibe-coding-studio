@@ -374,6 +374,47 @@ describe("ChatPanel", () => {
     expect(realtimeHarness.approveDraftPlan).toHaveBeenCalledWith({ requestKey: "req-7" });
   });
 
+  it("disables the Approve button after it is clicked to prevent duplicate approvals", async () => {
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => {
+      expect(realtimeHarness.sendUserMessage).toHaveBeenCalled();
+    });
+
+    act(() => {
+      realtimeHarness.onEvent?.({ type: "draft_plan.start", request_key: "req-dis" });
+      realtimeHarness.onEvent?.({
+        type: "draft_plan.item",
+        request_key: "req-dis",
+        item: { id: "1", text: "Create homepage" },
+      });
+      realtimeHarness.onEvent?.({ type: "draft_plan.ready", request_key: "req-dis" });
+    });
+
+    const approveBtn = screen.getByRole("button", { name: /approve/i });
+    expect(approveBtn).not.toBeDisabled();
+
+    fireEvent.click(approveBtn);
+
+    expect(approveBtn).toBeDisabled();
+    expect(realtimeHarness.approveDraftPlan).toHaveBeenCalledTimes(1);
+
+    // Second click should be a no-op
+    fireEvent.click(approveBtn);
+    expect(realtimeHarness.approveDraftPlan).toHaveBeenCalledTimes(1);
+  });
+
   it("clears the pending draft plan card when draft_plan.approved arrives", async () => {
     render(
       <WorkspaceProvider>
