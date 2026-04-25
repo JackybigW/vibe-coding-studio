@@ -1,12 +1,27 @@
 import asyncio
-from typing import Any, Optional
+import logging
+from collections.abc import Awaitable, Callable
+from typing import Any, Optional, Protocol, runtime_checkable
 
 from openmanus_runtime.exceptions import ToolError
 from openmanus_runtime.tool.base import BaseTool, CLIResult
 
+logger = logging.getLogger(__name__)
+
 
 _DRAFT_PLAN_DESCRIPTION = """Submit a concise implementation plan for user approval before starting any code changes.
 Call this tool as your FIRST action for implementation requests. Wait for approval before writing any code."""
+
+
+@runtime_checkable
+class _DraftPlanService(Protocol):
+    def put(self, project_id: int, request_key: str, items: list) -> asyncio.Event: ...
+    def delete(self, project_id: int, request_key: str) -> None: ...
+
+
+@runtime_checkable
+class _ApprovalGate(Protocol):
+    def approve(self, *, request_key: str) -> None: ...
 
 
 class DraftPlanTool(BaseTool):
@@ -41,15 +56,25 @@ class DraftPlanTool(BaseTool):
     _project_id: int = 0
     _approval_timeout: float = 300.0
     _approval_gate: Any = None
+    _stop_event: Any = None  # asyncio.Event | None
 
     @classmethod
-    def create(cls, event_sink: Any, service: Any, project_id: int, approval_timeout: float = 300.0, approval_gate: Any = None) -> "DraftPlanTool":
+    def create(
+        cls,
+        event_sink: Callable[[dict], Awaitable[None]],
+        service: _DraftPlanService,
+        project_id: int,
+        approval_timeout: float = 300.0,
+        approval_gate: Optional[_ApprovalGate] = None,
+        stop_event: Optional[asyncio.Event] = None,
+    ) -> "DraftPlanTool":
         tool = cls()
         tool._event_sink = event_sink
         tool._service = service
         tool._project_id = project_id
         tool._approval_timeout = approval_timeout
         tool._approval_gate = approval_gate
+        tool._stop_event = stop_event
         return tool
 
     async def execute(self, request_key: str = "request", items: Optional[list] = None, **_kwargs) -> CLIResult:
@@ -57,35 +82,50 @@ class DraftPlanTool(BaseTool):
             items = []
         if not (3 <= len(items) <= 7):
             raise ToolError("draft_plan requires 3 to 7 items")
-        from services.agent_draft_plan import DraftPlanState
-        state = DraftPlanState(
+
+        logger.info(
+            "draft_plan execute project_id=%s request_key=%s items=%d timeout=%.0fs",
+            self._project_id, request_key, len(items), self._approval_timeout,
+        )
+
+        approval_event = self._service.put(
             project_id=self._project_id,
             request_key=request_key,
             items=items,
         )
-        approval_event = self._service.put(state)
-        await self._event_sink({
-            "type": "draft_plan.start",
-            "request_key": request_key,
-        })
+
+        logger.info("draft_plan emitting start project_id=%s request_key=%s", self._project_id, request_key)
+        await self._event_sink({"type": "draft_plan.start", "request_key": request_key})
         for item in items:
-            await self._event_sink({
-                "type": "draft_plan.item",
-                "request_key": request_key,
-                "item": item,
-            })
-        await self._event_sink({
-            "type": "draft_plan.ready",
-            "request_key": request_key,
-        })
+            await asyncio.sleep(0.12)  # stagger items for streaming visual effect
+            await self._event_sink({"type": "draft_plan.item", "request_key": request_key, "item": item})
+        await asyncio.sleep(0.12)
+        logger.info("draft_plan emitting ready project_id=%s request_key=%s", self._project_id, request_key)
+        await self._event_sink({"type": "draft_plan.ready", "request_key": request_key})
+
+        logger.info("draft_plan waiting for approval project_id=%s request_key=%s", self._project_id, request_key)
         try:
             await asyncio.wait_for(approval_event.wait(), timeout=self._approval_timeout)
         except asyncio.TimeoutError:
-            raise ToolError("Draft plan approval timed out")
+            self._service.delete(self._project_id, request_key)
+            logger.warning(
+                "draft_plan TIMEOUT project_id=%s request_key=%s timeout=%.0fs — stopping session",
+                self._project_id, request_key, self._approval_timeout,
+            )
+            if self._stop_event is not None:
+                self._stop_event.set()
+            raise ToolError(
+                "Draft plan approval timed out after waiting for the user. "
+                "The session has been stopped. Do NOT continue or implement anything."
+            )
+        except asyncio.CancelledError:
+            self._service.delete(self._project_id, request_key)
+            logger.info("draft_plan cancelled project_id=%s request_key=%s", self._project_id, request_key)
+            raise
+
+        logger.info("draft_plan approved project_id=%s request_key=%s", self._project_id, request_key)
         if self._approval_gate is not None:
             self._approval_gate.approve(request_key=request_key)
-        await self._event_sink({
-            "type": "draft_plan.approved",
-            "request_key": request_key,
-        })
+        await self._event_sink({"type": "draft_plan.approved", "request_key": request_key})
+        self._service.delete(self._project_id, request_key)
         return CLIResult(output="Plan approved. Proceed with implementation.")

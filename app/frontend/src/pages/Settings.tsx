@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import Navbar from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,8 @@ import {
 import { toast } from "sonner";
 
 export default function SettingsPage() {
-  const { user, isAuthenticated, isLoading, login } = useAuth();
+  const navigate = useNavigate();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const [displayName, setDisplayName] = useState(user?.display_name || "");
   const [saving, setSaving] = useState(false);
 
@@ -45,7 +47,7 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-bold mb-4">Sign in required</h1>
           <Button
             className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white hover:opacity-90 border-0"
-            onClick={login}
+            onClick={() => navigate("/login")}
           >
             Sign in
           </Button>

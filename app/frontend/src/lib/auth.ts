@@ -17,6 +17,21 @@ class RPApi {
     return getAPIBaseURL();
   }
 
+  async getProviders() {
+    try {
+      const response = await this.client.get(
+        `${this.getBaseURL()}/api/v1/auth/providers`
+      );
+      return {
+        google: Boolean(response.data?.google),
+      };
+    } catch {
+      return {
+        google: false,
+      };
+    }
+  }
+
   async getCurrentUser() {
     try {
       const response = await this.client.get(
@@ -34,18 +49,12 @@ class RPApi {
   }
 
   async login() {
-    try {
-      const response = await this.client.get(
-        `${this.getBaseURL()}/api/v1/auth/login`
-      );
-      // The backend will redirect to OIDC provider
-      // SSO will work via cookies automatically
-      window.location.href = response.data.redirect_url;
-    } catch (error) {
-      throw new Error(
-        error.response?.data?.detail || 'Failed to initiate login'
-      );
+    const providers = await this.getProviders();
+    if (!providers.google) {
+      throw new Error('Google sign-in is not configured for this environment');
     }
+
+    window.location.href = `${this.getBaseURL()}/api/v1/auth/login`;
   }
 
   async logout() {

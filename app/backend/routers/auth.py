@@ -196,7 +196,7 @@ async def callback(
         if not id_token:
             return redirect_with_error("No ID token received")
 
-        id_claims = await validate_id_token(id_token)
+        id_claims = await validate_id_token(id_token, access_token=tokens.get("access_token"))
 
         # Validate nonce
         if id_claims.get("nonce") != nonce:
@@ -360,8 +360,30 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
+class AuthProvidersResponse(BaseModel):
+    google: bool
+
+
+def oidc_is_configured() -> bool:
+    issuer_url = (settings.oidc_issuer_url or "").strip()
+    client_id = (settings.oidc_client_id or "").strip()
+    client_secret = (settings.oidc_client_secret or "").strip()
+    placeholders = ("your-oidc-provider.com", "your-client-id", "your-client-secret")
+
+    if not issuer_url or not client_id or not client_secret:
+        return False
+
+    return not any(token in value for token in placeholders for value in (issuer_url, client_id, client_secret))
+
+
 def _auth_error_response(exc: AuthError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+
+@router.get("/providers", response_model=AuthProvidersResponse)
+async def auth_providers():
+    """Return which public auth providers are available in this environment."""
+    return AuthProvidersResponse(google=oidc_is_configured())
 
 
 @router.post("/register", status_code=201)
@@ -457,4 +479,3 @@ async def reset_password(
     except AuthError as exc:
         return _auth_error_response(exc)
     return {"message": "Password updated. You can now sign in with your new password."}
-

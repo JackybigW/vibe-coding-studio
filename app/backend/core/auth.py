@@ -36,7 +36,12 @@ def generate_code_challenge(code_verifier: str) -> str:
 
 async def get_jwks() -> Dict[str, Any]:
     """Get JWKS (JSON Web Key Set) from OIDC provider."""
-    jwks_url = f"{settings.oidc_issuer_url}/.well-known/jwks.json"
+    jwks_url = getattr(settings, 'oidc_jwks_url', None)
+    if not jwks_url:
+        if "accounts.google.com" in settings.oidc_issuer_url:
+            jwks_url = "https://www.googleapis.com/oauth2/v3/certs"
+        else:
+            jwks_url = f"{settings.oidc_issuer_url}/.well-known/jwks.json"
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             logger.info(f"Fetching JWKS from: {jwks_url}")
@@ -123,7 +128,7 @@ def decode_access_token(token: str) -> Dict[str, Any]:
         raise AccessTokenError("Invalid authentication token") from exc
 
 
-async def validate_id_token(id_token: str) -> Optional[Dict[str, Any]]:
+async def validate_id_token(id_token: str, access_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Validate ID token with proper JWT signature verification using JWKS."""
     try:
         # Get the header to find the key ID
@@ -194,6 +199,7 @@ async def validate_id_token(id_token: str) -> Optional[Dict[str, Any]]:
                 algorithms=["RS256"],
                 issuer=getattr(settings, 'oidc_jwt_issuer', None) or settings.oidc_issuer_url,
                 audience=settings.oidc_client_id,
+                access_token=access_token,
             )
             # Log user hash instead of actual user ID to avoid exposing sensitive information
             user_id = payload.get("sub", "unknown")
@@ -250,7 +256,14 @@ def build_authorization_url(
         params["code_challenge"] = code_challenge
         params["code_challenge_method"] = "S256"
 
-    auth_url = f"{settings.oidc_issuer_url}/authorize?" + urllib.parse.urlencode(params)
+    base_auth = getattr(settings, 'oidc_authorization_url', None)
+    if not base_auth:
+        if "accounts.google.com" in settings.oidc_issuer_url:
+            base_auth = f"{settings.oidc_issuer_url}/o/oauth2/v2/auth"
+        else:
+            base_auth = f"{settings.oidc_issuer_url}/authorize"
+
+    auth_url = base_auth + "?" + urllib.parse.urlencode(params)
     return auth_url
 
 

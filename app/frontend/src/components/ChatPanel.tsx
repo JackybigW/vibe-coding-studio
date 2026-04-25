@@ -349,6 +349,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     setIsStreaming(true);
     setIsStopping(false);
     setIsProgressExpanded(false);
+    setIsTaskChecklistExpanded(true);
     sessionGenerationRef.current += 1;
     const sessionGeneration = sessionGenerationRef.current;
     const bootstrapAbortController = new AbortController();
@@ -705,7 +706,12 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                   ))}
                 </ul>
               ) : null}
-              {draftPlan.isReady ? (
+              {draftPlan.isApproved ? (
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#22C55E] animate-in fade-in-0">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Plan Approved
+                </div>
+              ) : draftPlan.isReady ? (
                 <Button
                   size="sm"
                   disabled={draftPlan.isApproving}
@@ -716,7 +722,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                     });
                   }}
                 >
-                  Approve
+                  {draftPlan.isApproving ? "Approving..." : "Approve"}
                 </Button>
               ) : null}
             </div>

@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentRealtimeEvent } from "@/lib/agentRealtime";
 
 const APPROVE_DISMISS_TIMEOUT_MS = 30_000;
+const APPROVED_BADGE_DISMISS_MS = 2_500;
 
 type DraftPlanState = {
   request_key: string;
   items: Array<{ id: string; text: string }>;
   isReady: boolean;
   isApproving: boolean;
+  isApproved: boolean;
 } | null;
 
 export function useDraftPlan({
@@ -17,11 +19,16 @@ export function useDraftPlan({
 }) {
   const [draftPlan, setDraftPlan] = useState<DraftPlanState>(null);
   const approvalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const approvedDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearDraftPlan = useCallback(() => {
     if (approvalTimeoutRef.current) {
       clearTimeout(approvalTimeoutRef.current);
       approvalTimeoutRef.current = null;
+    }
+    if (approvedDismissRef.current) {
+      clearTimeout(approvedDismissRef.current);
+      approvedDismissRef.current = null;
     }
     setDraftPlan(null);
   }, []);
@@ -29,14 +36,12 @@ export function useDraftPlan({
   const handleDraftPlanEvent = useCallback(
     (event: AgentRealtimeEvent) => {
       if (event.type === "draft_plan.start") {
-        // Only the stop button should suppress a new plan; ignoreAssistantEventsRef
-        // is for the typewriter animation and must not affect plan events.
         if (stopRequestedRef.current) {
           console.log("[draft_plan] start dropped — stop requested", { request_key: event.request_key });
           return;
         }
         console.log("[draft_plan] start", { request_key: event.request_key });
-        setDraftPlan({ request_key: event.request_key, items: [], isReady: false, isApproving: false });
+        setDraftPlan({ request_key: event.request_key, items: [], isReady: false, isApproving: false, isApproved: false });
         return;
       }
       if (event.type === "draft_plan.item") {
@@ -58,19 +63,26 @@ export function useDraftPlan({
         return;
       }
       if (event.type === "draft_plan.approved") {
-        console.log("[draft_plan] approved — clearing card", { request_key: event.request_key });
+        console.log("[draft_plan] approved — showing badge", { request_key: event.request_key });
         if (approvalTimeoutRef.current) {
           clearTimeout(approvalTimeoutRef.current);
           approvalTimeoutRef.current = null;
         }
+        // Transition to approved badge, then dismiss after a short delay.
         setDraftPlan((current) => {
           if (!current || current.request_key !== event.request_key) return current;
-          return null;
+          return { ...current, isApproving: false, isApproved: true };
         });
+        approvedDismissRef.current = setTimeout(() => {
+          setDraftPlan((current) => {
+            if (!current || current.request_key !== event.request_key) return current;
+            return null;
+          });
+          approvedDismissRef.current = null;
+        }, APPROVED_BADGE_DISMISS_MS);
         return;
       }
     },
-    // Refs are stable objects; reading .current inside is intentional.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
@@ -94,6 +106,7 @@ export function useDraftPlan({
   useEffect(() => {
     return () => {
       if (approvalTimeoutRef.current) clearTimeout(approvalTimeoutRef.current);
+      if (approvedDismissRef.current) clearTimeout(approvedDismissRef.current);
     };
   }, []);
 

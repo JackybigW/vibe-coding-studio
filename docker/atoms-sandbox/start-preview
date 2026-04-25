@@ -101,10 +101,19 @@ ensure_backend_venv() {
   local backend_root="$1"
   local venv_dir="${backend_root}/.venv"
   if [[ ! -x "${venv_dir}/bin/python" ]]; then
+    echo "start-preview: creating venv at ${venv_dir}" >&2
     python3 -m venv "${venv_dir}"
+  else
+    echo "start-preview: reusing existing venv at ${venv_dir}" >&2
   fi
   if [[ -f "${backend_root}/requirements.txt" ]]; then
-    "${venv_dir}/bin/pip" install -q -r "${backend_root}/requirements.txt"
+    if [[ -x "${venv_dir}/bin/pip" ]]; then
+      echo "start-preview: installing requirements via pip" >&2
+      "${venv_dir}/bin/pip" install -q -r "${backend_root}/requirements.txt"
+    else
+      echo "start-preview: pip not found in venv (uv-managed), using uv pip install" >&2
+      uv pip install -q --python "${venv_dir}/bin/python" -r "${backend_root}/requirements.txt"
+    fi
   fi
 }
 
@@ -120,9 +129,12 @@ m = re.search(r'uv run uvicorn\s+(\S+)', sys.argv[1])
 print(m.group(1) if m else "")
 PY
 )"
-    echo "cd ${backend_root} && ${venv_python} -m uvicorn ${import_target} --host 0.0.0.0 --port 8000"
+    local normalized="cd ${backend_root} && ${venv_python} -m uvicorn ${import_target} --host 0.0.0.0 --port 8000"
+    echo "start-preview: normalized backend command: ${normalized}" >&2
+    echo "${normalized}"
     return 0
   fi
+  echo "start-preview: backend command unchanged: ${command}" >&2
   echo "${command}"
 }
 
@@ -210,4 +222,6 @@ if [[ -n "${BACKEND_COMMAND:-}" ]]; then
   nohup bash -lc "${BACKEND_COMMAND}" >"${BACKEND_LOG}" 2>&1 &
 fi
 
+echo "start-preview: frontend_command=${FRONTEND_COMMAND}" >&2
+echo "start-preview: backend_command=${BACKEND_COMMAND:-<none>}" >&2
 echo "start-preview: launched preview services"
