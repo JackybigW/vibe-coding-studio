@@ -348,7 +348,9 @@ def test_websocket_emits_draft_plan_and_blocks_execution_until_approved(monkeypa
                 "type": "draft_plan.ready",
                 "request_key": "req-1",
             }
-            time.sleep(0.05)
+            deadline = time.time() + 1.0
+            while not execution_started and time.time() < deadline:
+                time.sleep(0.005)
             assert execution_started == [True]
             assert execution_completed == []
             assert draft_plan_service.get(42, "req-1") is not None
@@ -376,7 +378,7 @@ def test_websocket_emits_draft_plan_and_blocks_execution_until_approved(monkeypa
                 "assistant_role": "engineer",
             }
             assert execution_completed == [True]
-            assert draft_plan_service.get(42, "req-1").approved is True
+            assert draft_plan_service.get(42, "req-1") is None  # cleaned up after approval
 
     asyncio.run(engine.dispose())
 

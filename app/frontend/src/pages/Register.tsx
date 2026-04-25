@@ -1,9 +1,31 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { client } from "@/lib/api";
+import { authApi } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import GoogleLogo from "@/components/GoogleLogo";
+import { Loader2 } from "lucide-react";
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === "object" && error !== null) {
+    const maybeResponse = (error as { response?: { data?: { detail?: string } } }).response;
+    if (maybeResponse?.data?.detail) {
+      return maybeResponse.data.detail;
+    }
+
+    const maybeData = (error as { data?: { detail?: string } }).data;
+    if (maybeData?.detail) {
+      return maybeData.detail;
+    }
+  }
+
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function Register() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -11,6 +33,30 @@ export default function Register() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [isGoogleEnabled, setIsGoogleEnabled] = useState(false);
+  const [isCheckingGoogle, setIsCheckingGoogle] = useState(true);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    authApi
+      .getProviders()
+      .then((providers) => {
+        if (!cancelled) {
+          setIsGoogleEnabled(providers.google);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCheckingGoogle(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,16 +78,22 @@ export default function Register() {
       });
       if (res?.data?.detail) throw new Error(res.data.detail);
       setDone(true);
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        setError(err.response.data.detail);
-      } else if (err?.data?.detail) {
-        setError(err.data.detail);
-      } else {
-        setError(err instanceof Error ? err.message : "Registration failed");
-      }
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Registration failed"));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setError("");
+    setIsGoogleLoading(true);
+    try {
+      await login();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Google sign in failed"));
+    } finally {
+      setIsGoogleLoading(false);
     }
   }
 
@@ -156,6 +208,40 @@ export default function Register() {
               {loading ? "Creating account…" : "Create account"}
             </button>
           </form>
+
+          <div className="my-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-[#27272A]" />
+            <span className="text-xs uppercase tracking-[0.24em] text-[#52525B]">
+              Or continue with
+            </span>
+            <div className="h-px flex-1 bg-[#27272A]" />
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full border-[#3F3F46] bg-[#09090B] text-white hover:bg-[#111114]"
+            onClick={handleGoogleSignIn}
+            disabled={isCheckingGoogle || isGoogleLoading || !isGoogleEnabled}
+          >
+            {isCheckingGoogle || isGoogleLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {isCheckingGoogle ? "Checking Google sign-in…" : "Redirecting…"}
+              </>
+            ) : (
+              <>
+                <GoogleLogo />
+                Continue with Google
+              </>
+            )}
+          </Button>
+
+          {!isCheckingGoogle && !isGoogleEnabled && (
+            <p className="mt-3 text-center text-xs text-[#71717A]">
+              Google sign-in is not configured in this environment yet.
+            </p>
+          )}
 
           <p className="text-center text-sm text-[#71717A] mt-6">
             Already have an account?{" "}

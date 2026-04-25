@@ -87,10 +87,15 @@ export function PreviewSurface({
   }
 
   if (frontendUrl || previewHtml) {
+    // Append ?_v=<previewKey> so each agent run forces a fresh browser load,
+    // bypassing any cached bundles from the previous version.
+    const srcWithBust = frontendUrl
+      ? `${frontendUrl}${frontendUrl.includes("?") ? "&" : "?"}_v=${previewKey}`
+      : undefined;
     return (
       <iframe
         key={previewKey}
-        src={frontendUrl || undefined}
+        src={srcWithBust || undefined}
         srcDoc={!frontendUrl ? previewHtml : undefined}
         title="App Preview"
         className="w-full h-full border-0"

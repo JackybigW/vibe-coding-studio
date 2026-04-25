@@ -125,6 +125,13 @@ async def agent_session_websocket(websocket: WebSocket, db: AsyncSession = Depen
             "task_store.summary",
             "todo.updated",
         }:
+            if event_type.startswith("draft_plan."):
+                logger.info(
+                    "ws:send %s project_id=%s request_key=%s",
+                    event_type,
+                    ticket.project_id,
+                    event.get("request_key"),
+                )
             await websocket.send_json(event)
 
     current_task: asyncio.Task[None] | None = None
@@ -151,6 +158,9 @@ async def agent_session_websocket(websocket: WebSocket, db: AsyncSession = Depen
                     project_id=ticket.project_id,
                 ).model_dump()
             )
+        except asyncio.CancelledError:
+            logger.info("agent realtime websocket run cancelled project_id=%s", ticket.project_id)
+            raise
         except Exception:
             logger.exception("agent realtime websocket run failed project_id=%s", ticket.project_id)
             if current_stop_event is None or not current_stop_event.is_set():
@@ -172,15 +182,26 @@ async def agent_session_websocket(websocket: WebSocket, db: AsyncSession = Depen
             if message_type == "run.stop":
                 if current_stop_event is not None and not current_stop_event.is_set():
                     current_stop_event.set()
-                    await websocket.send_json({"type": "run.stopped"})
+                if current_task is not None and not current_task.done():
+                    current_task.cancel()
+                await websocket.send_json({"type": "run.stopped"})
                 continue
 
             if message_type == "user.approve_plan":
                 request_key = str(message.get("request_key") or "")
-                get_agent_draft_plan_service().approve(
+                logger.info(
+                    "ws:recv user.approve_plan project_id=%s request_key=%s",
+                    ticket.project_id, request_key,
+                )
+                result = get_agent_draft_plan_service().approve(
                     project_id=ticket.project_id,
                     request_key=request_key,
                 )
+                if result is None:
+                    logger.warning(
+                        "ws:approve_plan no matching plan project_id=%s request_key=%s (already timed out?)",
+                        ticket.project_id, request_key,
+                    )
                 continue
 
             if message_type != "user.message":

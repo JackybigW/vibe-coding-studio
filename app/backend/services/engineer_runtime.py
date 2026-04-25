@@ -208,6 +208,7 @@ async def run_engineer_session(
                 service=draft_plan_service,
                 project_id=project_id,
                 approval_gate=gate,
+                stop_event=stop_event,
             )
             load_skill_tool = LoadSkillTool.create(loader=_skill_loader)
             todo_write_tool = TodoWriteTool.create(
@@ -278,7 +279,10 @@ async def run_engineer_session(
             "When a task is marked 'completed', it will automatically unblock dependent tasks.\\n"
             "5. Run verification commands (e.g., pytest, npm test, curl) when done to verify your work.\\n"
             "6. You MUST ensure ALL tasks are marked as 'completed' via `task_update` BEFORE you finish. Do NOT attempt "
-            "to finish if any task is still pending or in_progress.\\n\\n"
+            "to finish if any task is still pending or in_progress.\\n"
+            "7. After ALL tasks are completed and verification has passed, you MUST send one final message to the user "
+            "that briefly summarizes: what was built, which files were created or modified, and how to use the app. "
+            "This is required — do not skip it.\\n\\n"
 
             f"User request:\n{prompt}"
         )
@@ -438,14 +442,17 @@ async def run_engineer_session(
             }
 
             await log_step("starting preview services")
-            returncode, _, stderr = await sandbox_service.start_preview_services(container_name, env=preview_env)
+            returncode, stdout, stderr = await sandbox_service.start_preview_services(container_name, env=preview_env)
             if returncode != 0:
-                stderr_tail = stderr.strip().splitlines()[-1] if stderr.strip() else ""
+                stderr_lines = stderr.strip().splitlines() if stderr.strip() else []
+                stderr_tail = stderr_lines[-1] if stderr_lines else ""
+                stderr_full = "\n".join(stderr_lines[-10:]) if stderr_lines else ""
                 logger.warning(
-                    "%s preview start failed returncode=%s stderr=%s",
+                    "%s preview start failed returncode=%s\nstdout=%s\nstderr=%s",
                     prefix,
                     returncode,
-                    stderr_tail,
+                    stdout.strip() or "<empty>",
+                    stderr_full or "<empty>",
                 )
                 recorder.error(f"preview start failed returncode={returncode} stderr={stderr_tail}")
                 await traced_event_sink(

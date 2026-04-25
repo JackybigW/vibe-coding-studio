@@ -60,6 +60,7 @@ async def ensure_runtime_for_project(
     workspace_service = ProjectWorkspaceService(base_root=_WORKSPACES_ROOT)
     paths = workspace_service.resolve_paths(user_id=user_id, project_id=project_id)
 
+    logger.info("[ensure_runtime] project_id=%s user_id=%s", project_id, user_id)
     existing = await sessions_service.get_by_project(user_id, project_id)
     if (
         existing
@@ -71,10 +72,14 @@ async def ensure_runtime_for_project(
             sandbox_service_check = SandboxRuntimeService(project_root=_WORKSPACES_ROOT)
             container_name_check = existing.container_name
             if container_name_check:
+                logger.info(
+                    "[ensure_runtime] checking liveness container=%s frontend_port=%s backend_port=%s",
+                    container_name_check, existing.frontend_port, existing.backend_port,
+                )
                 frontend_alive = await sandbox_service_check.wait_for_service(
                     container_name_check, 3000, timeout_seconds=3
                 )
-                
+
                 # Verify backend if configured
                 contract = load_preview_contract(paths.host_root)
                 backend_alive = True
@@ -87,6 +92,7 @@ async def ensure_runtime_for_project(
                         )
 
                 if frontend_alive and backend_alive:
+                    logger.info("[ensure_runtime] reusing existing session key=%s", existing.preview_session_key)
                     return existing
                 else:
                     logger.warning(
@@ -94,8 +100,10 @@ async def ensure_runtime_for_project(
                         frontend_alive, backend_alive
                     )
             else:
+                logger.info("[ensure_runtime] reusing session (no container to check) key=%s", existing.preview_session_key)
                 return existing
         else:
+            logger.info("[ensure_runtime] reusing session (no frontend_port recorded) key=%s", existing.preview_session_key)
             return existing
 
     # Generate preview session key upfront so Vite --base path is correct.
@@ -121,10 +129,19 @@ async def ensure_runtime_for_project(
         "VITE_ATOMS_PREVIEW_FRONTEND_BASE": preview_urls["preview_frontend_url"],
         "VITE_ATOMS_PREVIEW_BACKEND_BASE": preview_urls["preview_backend_url"],
     }
+    logger.info("[ensure_runtime] running start-preview container=%s", container_name)
     returncode, stdout, stderr = await sandbox_service.start_preview_services(container_name, env=preview_env)
     if returncode != 0:
+        stderr_full = "\n".join(stderr.strip().splitlines()[-10:]) if stderr.strip() else ""
+        logger.error(
+            "[ensure_runtime] start-preview failed returncode=%s\nstdout=%s\nstderr=%s",
+            returncode,
+            stdout.strip() or "<empty>",
+            stderr_full or "<empty>",
+        )
         message = stderr.strip() or stdout.strip() or "start-preview failed"
         raise RuntimeError(message)
+    logger.info("[ensure_runtime] start-preview succeeded stdout=%s", stdout.strip())
 
     # Wait for frontend readiness.
     frontend_ready = False

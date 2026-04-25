@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { client } from "@/lib/api";
+import { authApi } from "@/lib/auth";
 
 interface UserProfile {
   id: number;
@@ -117,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async () => {
-    await client.auth.toLogin();
+    await authApi.login();
   };
 
   const loginWithPassword = async (email: string, password: string) => {

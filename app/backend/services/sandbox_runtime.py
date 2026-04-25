@@ -185,10 +185,12 @@ class SandboxRuntimeService:
     ) -> bool:
         deadline = time.monotonic() + timeout_seconds
         normalized_path = path if path.startswith("/") else f"/{path}"
+        logger.info("wait_for_service container=%s port=%s path=%s timeout=%.0fs", container_name, port, normalized_path, timeout_seconds)
 
         while True:
             remaining_seconds = deadline - time.monotonic()
             if remaining_seconds <= 0:
+                logger.warning("wait_for_service TIMEOUT container=%s port=%s path=%s", container_name, port, normalized_path)
                 return False
 
             probe_timeout = min(2.0, remaining_seconds, self.command_timeout_seconds)
@@ -214,8 +216,10 @@ class SandboxRuntimeService:
                 return False
 
             if returncode == 0:
+                logger.info("wait_for_service OK container=%s port=%s path=%s", container_name, port, normalized_path)
                 return True
             if time.monotonic() >= deadline:
+                logger.warning("wait_for_service TIMEOUT container=%s port=%s path=%s", container_name, port, normalized_path)
                 return False
             await asyncio.sleep(poll_interval_seconds)
 

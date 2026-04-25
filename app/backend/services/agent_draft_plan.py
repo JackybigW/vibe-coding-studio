@@ -13,17 +13,21 @@ class DraftPlanState:
 
 
 class AgentDraftPlanService:
-    def __init__(self):
+    # NOTE: In-memory store — incompatible with multi-worker deployments
+    # (uvicorn --workers N). Each worker has its own instance, so a
+    # WebSocket on worker-A cannot approve a plan stored in worker-B.
+    # Use a shared store (Redis, DB) for production multi-worker setups.
+
+    def __init__(self) -> None:
         self._plans: dict[tuple[int, str], DraftPlanState] = {}
 
-    def put(self, state: DraftPlanState) -> asyncio.Event:
-        key = (state.project_id, state.request_key)
-        self._plans[key] = state
+    def put(self, project_id: int, request_key: str, items: list) -> asyncio.Event:
+        state = DraftPlanState(project_id=project_id, request_key=request_key, items=items)
+        self._plans[(project_id, request_key)] = state
         return state._approval_event
 
     def approve(self, project_id: int, request_key: str) -> Optional[DraftPlanState]:
-        key = (project_id, request_key)
-        state = self._plans.get(key)
+        state = self._plans.get((project_id, request_key))
         if state is None:
             return None
         state.approved = True
@@ -32,6 +36,9 @@ class AgentDraftPlanService:
 
     def get(self, project_id: int, request_key: str) -> Optional[DraftPlanState]:
         return self._plans.get((project_id, request_key))
+
+    def delete(self, project_id: int, request_key: str) -> None:
+        self._plans.pop((project_id, request_key), None)
 
 
 _service_instance: Optional[AgentDraftPlanService] = None
