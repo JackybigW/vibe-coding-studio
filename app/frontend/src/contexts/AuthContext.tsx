@@ -36,12 +36,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchProfile = useCallback(async () => {
+  const fetchProfile = useCallback(async (token?: string) => {
     try {
       const profileRes = await client.apiCall.invoke({
         url: "/api/v1/profile/me",
         method: "GET",
-        data: {},
+        options: token ? { headers: { Authorization: `Bearer ${token}` } } : {},
       });
       if (profileRes?.data && !profileRes.data.error) {
         return profileRes.data;
@@ -61,12 +61,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const meRes = await client.apiCall.invoke({
           url: "/api/v1/auth/me",
           method: "GET",
-          data: {},
-          headers: { Authorization: `Bearer ${storedToken}` },
+          options: { headers: { Authorization: `Bearer ${storedToken}` } },
         });
         if (meRes?.data && !meRes.data.detail) {
           const authData = meRes.data;
-          const profile = await fetchProfile();
+          const profile = await fetchProfile(storedToken);
           setUser({
             id: profile?.id ?? 0,
             user_id: authData.id || authData.user_id || "",
