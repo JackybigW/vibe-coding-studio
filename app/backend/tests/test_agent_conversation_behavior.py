@@ -49,7 +49,7 @@ def _make_agent(extra_tools: list | None = None) -> ToolCallAgent:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user_input", ["hello", "hi", "你好", "hey there", "what's up"])
-async def test_conversational_input_stops_after_one_llm_call(user_input: str):
+async def test_conversational_input_stops_quickly(user_input: str):
     agent = _make_agent()
     call_count = 0
 
@@ -62,9 +62,11 @@ async def test_conversational_input_stops_after_one_llm_call(user_input: str):
 
     await agent.run(user_input)
 
-    assert call_count == 1, (
-        f"Expected 1 LLM call for conversational input '{user_input}', got {call_count}. "
-        "Agent is looping instead of stopping after a pure-text reply."
+    # Agent should stop after at most 2 LLM calls for conversational input:
+    # step 1 = first greeting, step 2 = detects loop (no tools, 2 text replies) → FINISHED
+    assert call_count <= 2, (
+        f"Expected ≤2 LLM calls for conversational input '{user_input}', got {call_count}. "
+        "Agent is looping instead of stopping."
     )
 
 

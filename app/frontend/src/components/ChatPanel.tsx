@@ -626,7 +626,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                 </div>
               )}
               <div className="text-sm text-[#E4E4E7] prose prose-invert prose-sm max-w-none [&_pre]:bg-[#0A0A0C] [&_pre]:border [&_pre]:border-[#27272A] [&_pre]:rounded-lg [&_code]:text-[#A855F7] [&_pre_code]:text-[#E4E4E7]">
-                {msg.content ? (
+                {msg.content && !msg.approvedPlan ? (
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {msg.content}
                   </ReactMarkdown>

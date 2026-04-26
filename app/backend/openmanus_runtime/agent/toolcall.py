@@ -183,10 +183,20 @@ class ToolCallAgent(ReActAgent):
             if self.tool_choices == ToolChoice.REQUIRED and not self.tool_calls:
                 return True  # Will be handled in act()
 
-            # For 'auto' mode, pure text response means the agent is done for this turn
+            # For 'auto' mode: detect conversational loop (no tools ever used + 2+ text-only replies)
             if self.tool_choices == ToolChoice.AUTO and not self.tool_calls:
                 if content:
-                    self.state = AgentState.FINISHED
+                    tool_calls_made = any(
+                        m.role == "assistant" and m.tool_calls
+                        for m in self.messages
+                    )
+                    if not tool_calls_made:
+                        text_replies = sum(
+                            1 for m in self.messages
+                            if m.role == "assistant" and not m.tool_calls and m.content
+                        )
+                        if text_replies >= 2:
+                            self.state = AgentState.FINISHED
                 return bool(content)
 
             return bool(self.tool_calls)
