@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+from pathlib import Path
 from typing import List, Optional
 
 from datetime import datetime, date
@@ -17,6 +19,64 @@ from schemas.auth import UserResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/entities/projects", tags=["projects"])
+
+_WORKSPACES_ROOT = Path(os.environ.get("ATOMS_WORKSPACES_ROOT", "/tmp/atoms_workspaces"))
+
+
+async def _initialize_project_workspace(
+    db: AsyncSession,
+    user_id: str,
+    project_id: int,
+    framework: str | None,
+) -> None:
+    """Seed a newly created project with framework starter files.
+
+    Writes minimal template files (package.json, vite config, entry points)
+    to both the host workspace directory and the project_files database table
+    so the Docker sandbox preview starts successfully on first access.
+    """
+    from services.project_workspace import ProjectWorkspaceService
+    from services.project_files import Project_filesService
+    from services.project_starter import get_template_files
+
+    try:
+        template_files = get_template_files(framework)
+    except ValueError:
+        logger.warning(
+            "Unknown framework %r for project %s — falling back to react",
+            framework, project_id,
+        )
+        template_files = get_template_files("react")
+
+    workspace_service = ProjectWorkspaceService(base_root=_WORKSPACES_ROOT)
+    try:
+        paths = workspace_service.resolve_paths(user_id=user_id, project_id=project_id)
+        workspace_service.materialize_files(paths.host_root, template_files)
+    except Exception:
+        logger.warning(
+            "Failed to write template files to disk for project %s",
+            project_id, exc_info=True,
+        )
+        return
+
+    files_service = Project_filesService(db)
+    for file_record in template_files:
+        try:
+            await files_service.create(
+                {
+                    "project_id": project_id,
+                    "file_path": file_record["file_path"],
+                    "file_name": Path(file_record["file_path"]).name,
+                    "content": file_record["content"],
+                    "is_directory": bool(file_record.get("is_directory", False)),
+                },
+                user_id=user_id,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to persist template file %s for project %s",
+                file_record["file_path"], project_id,
+            )
 
 
 # ---------- Pydantic Schemas ----------
@@ -232,8 +292,16 @@ async def create_projects(
         result = await service.create(data.model_dump(), user_id=str(current_user.id))
         if not result:
             raise HTTPException(status_code=400, detail="Failed to create projects")
-        
+
         logger.info(f"Projects created successfully with id: {result.id}")
+
+        await _initialize_project_workspace(
+            db=db,
+            user_id=str(current_user.id),
+            project_id=result.id,
+            framework=data.framework,
+        )
+
         return result
     except ValueError as e:
         logger.error(f"Validation error creating projects: {str(e)}")
@@ -260,6 +328,12 @@ async def create_projectss_batch(
             result = await service.create(item_data.model_dump(), user_id=str(current_user.id))
             if result:
                 results.append(result)
+                await _initialize_project_workspace(
+                    db=db,
+                    user_id=str(current_user.id),
+                    project_id=result.id,
+                    framework=item_data.framework,
+                )
         
         logger.info(f"Batch created {len(results)} projectss successfully")
         return results
