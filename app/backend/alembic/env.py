@@ -4,6 +4,7 @@
 
 import asyncio
 import importlib
+import os
 import pkgutil
 from logging.config import fileConfig
 
@@ -25,6 +26,16 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def get_database_url():
+    url = config.get_main_option("sqlalchemy.url")
+    if url:
+        return url
+    url = os.environ.get("DATABASE_URL", "")
+    if "postgresql://" in url and "+asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://")
+    return url
+
+
 def alembic_include_object(object, name, type_, reflected, compare_to):
     # type_ can be 'table', 'index', 'column', 'constraint'
     # ignore particular table_name
@@ -34,7 +45,7 @@ def alembic_include_object(object, name, type_, reflected, compare_to):
 
 
 async def run_migrations_online():
-    connectable = create_async_engine(config.get_main_option("sqlalchemy.url"), poolclass=pool.NullPool)
+    connectable = create_async_engine(get_database_url(), poolclass=pool.NullPool)
     async with connectable.connect() as connection:
         await connection.run_sync(
             lambda sync_conn: context.configure(
