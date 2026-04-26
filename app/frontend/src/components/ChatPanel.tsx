@@ -433,7 +433,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       console.error("Chat error:", err);
       appendMessage({
         role: "assistant",
-        agent: "swe",
+        agent: "engineer",
         content:
           err instanceof Error
             ? err.message
