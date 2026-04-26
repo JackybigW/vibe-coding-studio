@@ -80,13 +80,6 @@ def split_thinking_content(text: Optional[str]) -> tuple[Optional[str], str]:
     return thinking, content
 
 
-class _FallbackTokenizer:
-    """Character-based token estimator used when tiktoken cannot download its data files."""
-    def encode(self, text: str) -> list:
-        # ~1 token per 3 chars is a reasonable estimate for mixed Chinese/English
-        return [0] * max(1, len(text) // 3)
-
-
 class TokenCounter:
     # Token constants
     BASE_MESSAGE_TOKENS = 4
@@ -251,16 +244,11 @@ class LLM:
                 else None
             )
 
-            # Initialize tokenizer — fall back to char-based estimator if tiktoken
-            # cannot reach its CDN (e.g. network-restricted servers in China).
+            # Initialize tokenizer
             try:
-                try:
-                    self.tokenizer = tiktoken.encoding_for_model(self.model)
-                except KeyError:
-                    self.tokenizer = tiktoken.get_encoding("cl100k_base")
-            except Exception:
-                logger.warning("tiktoken unavailable, using character-based token estimator")
-                self.tokenizer = _FallbackTokenizer()
+                self.tokenizer = tiktoken.encoding_for_model(self.model)
+            except KeyError:
+                self.tokenizer = tiktoken.get_encoding("cl100k_base")
 
             if self.api_type == "azure":
                 self.client = AsyncAzureOpenAI(
