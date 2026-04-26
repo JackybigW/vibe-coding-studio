@@ -43,27 +43,22 @@ You have been tasked with developing a web app or game.
 ./                              # Working dir
 ├── app                         # Project Folder
 │    ├── backend                # Backend code folder
-│    │    ├── main.py           # [PROTECTED] Backend startup entry
-│    │    ├── lambda_handler.py # [PROTECTED] AWS Lambda entry + routing
-│    │    ├── core/             # [PROTECTED] Config, enums, crypto — cannot be modified
-│    │    ├── models/           # [PROTECTED] ORM models — cannot be modified
-│    │    ├── requirements.txt
-│    │    ├── routers/          # API routes (auto-discovered, prefix MUST be /api/v1/)
+│    │    ├── main.py           # Backend startup entry (Must use FastAPI and define a GET /health endpoint)
+│    │    ├── requirements.txt  # Must include fastapi, uvicorn, and other dependencies
+│    │    ├── routers/          # API routes
 │    │    ├── services/         # Business logic
 │    │    ├── schemas/          # Pydantic request/response models
-│    │    ├── alembic/          # Database migrations
-│    │    ├── skills_docs/      # Skill documentation for agent knowledge
 │    ├── frontend               # Frontend code folder, usually use shadcn-ui
 │    │    ├── public            # store generated or uploaded materials like images
 │    │    ├── src
 │    │    ├── index.html        # Update <title> tag content
 ```
 
-### Protected Paths (NEVER modify)
-- `app/backend/core/**`
-- `app/backend/models/**`
-- `app/backend/main.py`
-- `app/backend/lambda_handler.py`
+### Backend Requirements
+- You MUST create `app/backend/main.py` as the entrypoint for your FastAPI application.
+- You MUST include a GET `/health` endpoint in `main.py` that returns `{"status": "healthy"}`. The platform's preview environment requires this exact endpoint to verify the backend is running.
+- You MUST create `app/backend/requirements.txt` and include `fastapi`, `uvicorn`, and any other required libraries.
+- DO NOT use `app/backend/api.py` or other names for the entrypoint; it must be `main.py`.
 
 ## Available Tools (Agent Function Calls)
 

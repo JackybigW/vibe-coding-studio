@@ -260,6 +260,9 @@ async def run_engineer_session(
             'The "backend" object is optional when the app is frontend-only.\n'
             "If your app has a backend API, set the VITE_ATOMS_PREVIEW_BACKEND_BASE "
             "environment variable in the frontend so it can reach the backend.\n"
+            "If you build a backend, you MUST create app/backend/main.py as the entrypoint "
+            "and include a GET /health endpoint that returns HTTP 200 `{\"status\": \"healthy\"}`. "
+            "You MUST also create app/backend/requirements.txt containing `fastapi`, `uvicorn`, and any other dependencies.\n"
             "If you build a React SPA with React Router or any client-side router, "
             "it must work under the preview base path instead of assuming '/'. "
             "For BrowserRouter, set a basename derived from the current preview path or an equivalent mechanism.\n"
