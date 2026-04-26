@@ -141,7 +141,6 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
           setMessages(
             res.data.items.map((m: Record<string, unknown>) => {
               const agent = m.agent as string;
-              // Reconstruct approved plan messages saved by a previous session
               if (agent === "plan_approved") {
                 try {
                   const items = JSON.parse(m.content as string) as Array<{ id: string; text: string }>;
@@ -153,7 +152,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                     approvedPlan: items,
                     created_at: m.created_at as string,
                   };
-                } catch { /* fall through to normal mapping */ }
+                } catch { /* corrupted plan JSON — render as normal message */ }
               }
               return {
                 id: m.id as number,
@@ -803,7 +802,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
           {isTaskChecklistExpanded && (
             <div className="space-y-1.5 max-h-[25vh] overflow-y-auto pr-2 custom-scrollbar mt-2">
               {taskSummaries.map((t: { id?: string; task_key?: string; status?: string; subject?: string }) => (
-                <div key={t.id || t.task_key} className="flex items-start gap-2 text-xs">
+                <div key={t.task_key || t.id} className="flex items-start gap-2 text-xs">
                   {t.status === "completed" ? (
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#22C55E] flex-shrink-0 mt-0.5" />
                   ) : t.status === "in_progress" ? (

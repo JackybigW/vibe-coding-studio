@@ -133,6 +133,10 @@ async def agent_session_websocket(websocket: WebSocket, db: AsyncSession = Depen
                     event.get("request_key"),
                 )
             await websocket.send_json(event)
+            return
+
+        # Forward any other event type directly to the client
+        await websocket.send_json(event)
 
     current_task: asyncio.Task[None] | None = None
     current_stop_event: asyncio.Event | None = None

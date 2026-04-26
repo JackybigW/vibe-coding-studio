@@ -30,17 +30,12 @@ export function useDraftPlan({
   const handleDraftPlanEvent = useCallback(
     (event: AgentRealtimeEvent) => {
       if (event.type === "draft_plan.start") {
-        if (stopRequestedRef.current) {
-          console.log("[draft_plan] start dropped — stop requested", { request_key: event.request_key });
-          return;
-        }
-        console.log("[draft_plan] start", { request_key: event.request_key });
+        if (stopRequestedRef.current) return;
         setDraftPlan({ request_key: event.request_key, items: [], isReady: false, isApproving: false, isApproved: false });
         return;
       }
       if (event.type === "draft_plan.item") {
         if (stopRequestedRef.current) return;
-        console.log("[draft_plan] item", { request_key: event.request_key, item: event.item });
         setDraftPlan((current) => {
           if (!current || current.request_key !== event.request_key) return current;
           return { ...current, items: [...current.items, event.item] };
@@ -49,7 +44,6 @@ export function useDraftPlan({
       }
       if (event.type === "draft_plan.ready") {
         if (stopRequestedRef.current) return;
-        console.log("[draft_plan] ready", { request_key: event.request_key });
         setDraftPlan((current) => {
           if (!current || current.request_key !== event.request_key) return current;
           return { ...current, isReady: true };
@@ -57,7 +51,6 @@ export function useDraftPlan({
         return;
       }
       if (event.type === "draft_plan.approved") {
-        console.log("[draft_plan] approved", { request_key: event.request_key });
         if (approvalTimeoutRef.current) {
           clearTimeout(approvalTimeoutRef.current);
           approvalTimeoutRef.current = null;
