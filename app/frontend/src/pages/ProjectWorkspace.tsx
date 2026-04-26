@@ -124,7 +124,7 @@ export function PreviewSurface({
 
 /** Inner workspace that uses the context */
 export function WorkspaceInner() {
-  const { id } = useParams<{ id: string }>();
+  const { projectNumber } = useParams<{ projectNumber: string }>();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
   const {
@@ -141,7 +141,8 @@ export function WorkspaceInner() {
     reloadPreview,
     taskSummaries,
   } = useWorkspace();
-  const routeProjectId = id ? parseInt(id) : null;
+  const routeProjectNumber = projectNumber ? parseInt(projectNumber) : null;
+  const [internalId, setInternalId] = useState<number | null>(null);
 
   const [project, setProject] = useState<Project | null>(null);
   const [leftTab, setLeftTab] = useState<TabType>("chat");
@@ -156,20 +157,20 @@ export function WorkspaceInner() {
   const [publishUrl, setPublishUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
-  // Sync projectId to context
+  // Sync internal id to context
   useEffect(() => {
-    setProjectId(routeProjectId);
-  }, [routeProjectId, setProjectId]);
+    setProjectId(internalId);
+  }, [internalId, setProjectId]);
 
   // Ensure workspace runtime only after the workspace context has switched projects.
   useEffect(() => {
-    if (!routeProjectId || activeProjectId !== routeProjectId) return;
-    
+    if (!internalId || activeProjectId !== internalId) return;
+
     let isCancelled = false;
     let timeoutId: NodeJS.Timeout;
 
     const attemptEnsure = () => {
-      ensureWorkspaceRuntime(routeProjectId)
+      ensureWorkspaceRuntime(internalId)
         .then((status) => {
           if (isCancelled) return;
           setPreview({ ...status });
@@ -192,28 +193,29 @@ export function WorkspaceInner() {
       isCancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [activeProjectId, clearPreview, routeProjectId, setPreview, setPreviewFailure]);
+  }, [activeProjectId, clearPreview, internalId, setPreview, setPreviewFailure]);
 
-  // Load project
+  // Load project by per-user project number
   useEffect(() => {
-    if (!routeProjectId || !isAuthenticated) return;
+    if (!routeProjectNumber || !isAuthenticated) return;
     const loadProject = async () => {
       try {
-        const res = await client.entities.projects.get({
-          id: String(routeProjectId),
-        });
-        if (res?.data) {
+        const res = await fetch(`/api/v1/entities/projects/by-number/${routeProjectNumber}`);
+        if (!res.ok) throw new Error("Project not found");
+        const data = await res.json();
+        if (data) {
+          setInternalId(data.id as number);
           setProject({
-            id: res.data.id as number,
-            name: res.data.name as string,
-            description: res.data.description as string,
-            visibility: (res.data.visibility as string) || "private",
-            framework: (res.data.framework as string) || "react",
-            deploy_url: res.data.deploy_url as string,
+            id: data.id as number,
+            name: data.name as string,
+            description: data.description as string,
+            visibility: (data.visibility as string) || "private",
+            framework: (data.framework as string) || "react",
+            deploy_url: data.deploy_url as string,
           });
           setPublishUrl(
-            (res.data.deploy_url as string) ||
-              `atoms.dev/${(res.data.name as string)
+            (data.deploy_url as string) ||
+              `atoms.dev/${(data.name as string)
                 ?.toLowerCase()
                 .replace(/\s+/g, "-")}`
           );
@@ -225,15 +227,15 @@ export function WorkspaceInner() {
       }
     };
     loadProject();
-  }, [routeProjectId, isAuthenticated, navigate]);
+  }, [routeProjectNumber, isAuthenticated, navigate]);
 
   const handlePublish = async () => {
-    if (!routeProjectId) return;
+    if (!internalId) return;
     setIsPublishing(true);
     setTimeout(async () => {
       try {
         await client.entities.projects.update({
-          id: String(routeProjectId),
+          id: String(internalId),
           data: {
             deploy_url: `https://${publishUrl}`,
             updated_at: new Date().toISOString(),
@@ -413,7 +415,7 @@ export function WorkspaceInner() {
     }
   };
 
-  if (!project && routeProjectId) {
+  if (!project && routeProjectNumber) {
     return (
       <div className="h-screen bg-[#09090B] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-[#A855F7] animate-spin" />
@@ -572,10 +574,10 @@ export function WorkspaceInner() {
               <Select
                 value={project?.visibility || "private"}
                 onValueChange={async (val) => {
-                  if (!routeProjectId) return;
+                  if (!internalId) return;
                   try {
                     await client.entities.projects.update({
-                      id: String(routeProjectId),
+                      id: String(internalId),
                       data: { visibility: val },
                     });
                     setProject((prev) =>

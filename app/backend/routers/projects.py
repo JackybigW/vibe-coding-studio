@@ -50,6 +50,7 @@ class ProjectsResponse(BaseModel):
     """Entity response schema"""
     id: int
     user_id: str
+    project_number: int = 0
     name: str
     description: Optional[str] = None
     status: Optional[str] = None
@@ -167,6 +168,28 @@ async def query_projectss_all(
         raise
     except Exception as e:
         logger.error(f"Error querying projectss: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/by-number/{project_number}", response_model=ProjectsResponse)
+async def get_project_by_number(
+    project_number: int,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a project by per-user project number"""
+    logger.debug(f"Fetching project by number: user={current_user.id}, number={project_number}")
+
+    service = ProjectsService(db)
+    try:
+        result = await service.get_by_number(project_number, str(current_user.id))
+        if not result:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching project by number {project_number}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 

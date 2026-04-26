@@ -34,6 +34,7 @@ import { toast } from "sonner";
 
 interface Project {
   id: number;
+  project_number: number;
   name: string;
   description?: string;
   status: string;
@@ -78,6 +79,7 @@ export default function DashboardPage() {
           setProjects(
             res.data.items.map((p: Record<string, unknown>) => ({
               id: p.id as number,
+              project_number: (p.project_number as number) || 0,
               name: p.name as string,
               description: p.description as string,
               status: (p.status as string) || "active",
@@ -120,7 +122,7 @@ export default function DashboardPage() {
         setShowCreate(false);
         setNewName("");
         setNewDesc("");
-        navigate(`/workspace/${res.data.id}`);
+        navigate(`/workspace/${res.data.project_number}`);
       }
     } catch (err) {
       console.error("Failed to create project:", err);
@@ -158,8 +160,8 @@ export default function DashboardPage() {
     }
   };
 
-  const handleOpen = (id: number) => {
-    navigate(`/workspace/${id}`);
+  const handleOpen = (projectNumber: number) => {
+    navigate(`/workspace/${projectNumber}`);
   };
 
   const filtered = projects.filter(
@@ -292,7 +294,7 @@ export default function DashboardPage() {
             {filtered.map((project) => (
               <div
                 key={project.id}
-                onClick={() => handleOpen(project.id)}
+                onClick={() => handleOpen(project.project_number)}
                 className="flex items-center gap-4 bg-[#18181B] border border-[#27272A] rounded-lg px-4 py-3 hover:border-[#7C3AED]/30 cursor-pointer transition-all"
               >
                 <div className="w-10 h-10 rounded-lg bg-[#0D0D0F] flex items-center justify-center flex-shrink-0">

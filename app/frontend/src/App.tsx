@@ -36,7 +36,7 @@ const App = () => (
             <Route path="/auth/verify-email" element={<VerifyEmail />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/workspace" element={<Workspace />} />
-            <Route path="/workspace/:id" element={<ProjectWorkspace />} />
+            <Route path="/workspace/:projectNumber" element={<ProjectWorkspace />} />
             <Route path="/architecture" element={<Architecture />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/explore" element={<Explore />} />

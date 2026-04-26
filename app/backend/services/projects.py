@@ -21,6 +21,15 @@ class ProjectsService:
         try:
             if user_id:
                 data['user_id'] = user_id
+            # Auto-assign per-user project number
+            if 'project_number' not in data or data['project_number'] is None:
+                max_num_result = await self.db.execute(
+                    select(func.max(Projects.project_number)).where(
+                        Projects.user_id == user_id
+                    )
+                )
+                max_num = max_num_result.scalar() or 0
+                data['project_number'] = max_num + 1
             obj = Projects(**data)
             self.db.add(obj)
             await self.db.commit()
@@ -51,6 +60,19 @@ class ProjectsService:
             return result.scalar_one_or_none()
         except Exception as e:
             logger.error(f"Error fetching projects {obj_id}: {str(e)}")
+            raise
+
+    async def get_by_number(self, project_number: int, user_id: str) -> Optional[Projects]:
+        """Get project by per-user project number"""
+        try:
+            query = select(Projects).where(
+                Projects.user_id == user_id,
+                Projects.project_number == project_number,
+            )
+            result = await self.db.execute(query)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Error fetching project by number {project_number}: {str(e)}")
             raise
 
     async def get_list(

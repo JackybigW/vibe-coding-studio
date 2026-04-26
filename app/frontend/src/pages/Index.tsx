@@ -75,7 +75,7 @@ export default function LandingPage() {
       });
       if (res?.data?.id) {
         toast.success("Project created! Opening workspace...");
-        navigate(`/workspace/${res.data.id}`);
+        navigate(`/workspace/${res.data.project_number}`);
       } else {
         navigate("/dashboard");
       }

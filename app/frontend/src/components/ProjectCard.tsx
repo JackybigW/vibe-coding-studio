@@ -30,6 +30,7 @@ import {
 
 interface Project {
   id: number;
+  project_number: number;
   name: string;
   description?: string;
   status: string;
@@ -43,7 +44,7 @@ interface Project {
 
 interface ProjectCardProps {
   project: Project;
-  onOpen: (id: number) => void;
+  onOpen: (projectNumber: number) => void;
   onDelete: (id: number) => void;
   onRename: (id: number, newName: string) => void;
 }
@@ -98,7 +99,7 @@ export default function ProjectCard({
     <>
       <div
         className="group bg-[#18181B] border border-[#27272A] rounded-xl overflow-hidden hover:border-[#7C3AED]/40 transition-all duration-300 cursor-pointer"
-        onClick={() => onOpen(project.id)}
+        onClick={() => onOpen(project.project_number)}
       >
         {/* Thumbnail */}
         <div className="aspect-video bg-[#0D0D0F] relative overflow-hidden">
@@ -166,7 +167,7 @@ export default function ProjectCard({
                   className="text-[#FAFAFA] cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onOpen(project.id);
+                    onOpen(project.project_number);
                   }}
                 >
                   <Code2 className="w-4 h-4 mr-2" />
