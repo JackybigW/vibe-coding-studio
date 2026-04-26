@@ -198,7 +198,12 @@ export default function DashboardPage() {
           </div>
           <Button
             className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white hover:opacity-90 border-0"
-            onClick={() => setShowCreate(true)}
+            onClick={() => {
+              const nextNum = projects.length + 1;
+              setNewName(`Workspace ${nextNum}`);
+              setNewDesc("");
+              setShowCreate(true);
+            }}
           >
             <Plus className="w-4 h-4 mr-2" />
             New Project
@@ -259,7 +264,11 @@ export default function DashboardPage() {
             {!searchQuery && (
               <Button
                 className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white hover:opacity-90 border-0"
-                onClick={() => setShowCreate(true)}
+                onClick={() => {
+                  setNewName(`Workspace ${projects.length + 1}`);
+                  setNewDesc("");
+                  setShowCreate(true);
+                }}
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Create Project

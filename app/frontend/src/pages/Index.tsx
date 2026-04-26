@@ -47,9 +47,24 @@ export default function LandingPage() {
     setIsCreating(true);
     try {
       const now = new Date().toISOString();
+
+      // Get per-user workspace number
+      let workspaceNum = 1;
+      try {
+        const projectsRes = await client.entities.projects.query({
+          query: { status: "active" },
+          limit: 50,
+        });
+        if (projectsRes?.data?.items) {
+          workspaceNum = projectsRes.data.items.length + 1;
+        }
+      } catch {
+        // fallback: use generic name
+      }
+
       const res = await client.entities.projects.create({
         data: {
-          name: "My New Project",
+          name: `Workspace ${workspaceNum}`,
           description: "Created from landing page",
           status: "active",
           visibility: "private",
