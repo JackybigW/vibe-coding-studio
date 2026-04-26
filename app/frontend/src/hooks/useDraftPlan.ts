@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentRealtimeEvent } from "@/lib/agentRealtime";
 
 const APPROVE_DISMISS_TIMEOUT_MS = 30_000;
-const APPROVED_BADGE_DISMISS_MS = 2_500;
 
 type DraftPlanState = {
   request_key: string;
@@ -19,16 +18,11 @@ export function useDraftPlan({
 }) {
   const [draftPlan, setDraftPlan] = useState<DraftPlanState>(null);
   const approvalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const approvedDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearDraftPlan = useCallback(() => {
     if (approvalTimeoutRef.current) {
       clearTimeout(approvalTimeoutRef.current);
       approvalTimeoutRef.current = null;
-    }
-    if (approvedDismissRef.current) {
-      clearTimeout(approvedDismissRef.current);
-      approvedDismissRef.current = null;
     }
     setDraftPlan(null);
   }, []);
@@ -63,23 +57,16 @@ export function useDraftPlan({
         return;
       }
       if (event.type === "draft_plan.approved") {
-        console.log("[draft_plan] approved — showing badge", { request_key: event.request_key });
+        console.log("[draft_plan] approved", { request_key: event.request_key });
         if (approvalTimeoutRef.current) {
           clearTimeout(approvalTimeoutRef.current);
           approvalTimeoutRef.current = null;
         }
-        // Transition to approved badge, then dismiss after a short delay.
+        // Mark as approved — ChatPanel watches this and commits to messages, then clears.
         setDraftPlan((current) => {
           if (!current || current.request_key !== event.request_key) return current;
           return { ...current, isApproving: false, isApproved: true };
         });
-        approvedDismissRef.current = setTimeout(() => {
-          setDraftPlan((current) => {
-            if (!current || current.request_key !== event.request_key) return current;
-            return null;
-          });
-          approvedDismissRef.current = null;
-        }, APPROVED_BADGE_DISMISS_MS);
         return;
       }
     },
@@ -106,7 +93,6 @@ export function useDraftPlan({
   useEffect(() => {
     return () => {
       if (approvalTimeoutRef.current) clearTimeout(approvalTimeoutRef.current);
-      if (approvedDismissRef.current) clearTimeout(approvedDismissRef.current);
     };
   }, []);
 

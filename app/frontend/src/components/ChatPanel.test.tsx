@@ -415,7 +415,7 @@ describe("ChatPanel", () => {
     expect(realtimeHarness.approveDraftPlan).toHaveBeenCalledTimes(1);
   });
 
-  it("clears the pending draft plan card when draft_plan.approved arrives", async () => {
+  it("commits approved plan to messages and removes interactive card when draft_plan.approved arrives", async () => {
     render(
       <WorkspaceProvider>
         <WorkspaceHarness>
@@ -451,9 +451,12 @@ describe("ChatPanel", () => {
       realtimeHarness.onEvent?.({ type: "draft_plan.approved", request_key: "req-1" });
     });
 
+    // Interactive approve button and "Draft Plan" header are gone
     expect(screen.queryByText("Draft Plan")).not.toBeInTheDocument();
-    expect(screen.queryByText("Create homepage")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+    // Plan content is committed as a permanent message with approved badge
+    expect(screen.getByText("Create homepage")).toBeInTheDocument();
+    expect(screen.getByText("Plan Approved")).toBeInTheDocument();
   });
 
   it("does not clear the current draft plan card when draft_plan.approved has a different request_key", async () => {

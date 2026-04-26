@@ -49,6 +49,7 @@ interface Message {
   created_at?: string;
   isStreaming?: boolean;
   filesWritten?: string[];
+  approvedPlan?: Array<{ id: string; text: string }>;
 }
 
 const MODELS = [
@@ -177,6 +178,19 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const appendMessage = useCallback((message: Message) => {
     setMessages((prev) => [...prev, message]);
   }, []);
+
+  // When plan is approved, commit it as a permanent message then clear the interactive card.
+  useEffect(() => {
+    if (!draftPlan?.isApproved) return;
+    appendMessage({
+      role: "assistant",
+      agent: "engineer",
+      content: "",
+      approvedPlan: draftPlan.items,
+      created_at: new Date().toISOString(),
+    });
+    clearDraftPlan();
+  }, [draftPlan, appendMessage, clearDraftPlan]);
 
   const stopTypingLoop = useCallback(() => {
     if (typingTimerRef.current !== null) {
@@ -605,6 +619,27 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
               {msg.role === "assistant" && msg.thinking ? (
                 <ThinkingDisclosure thinking={msg.thinking} />
               ) : null}
+
+              {/* Approved plan */}
+              {msg.approvedPlan && msg.approvedPlan.length > 0 && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider mb-2 text-[#A855F7]">
+                    Plan
+                  </div>
+                  <ul className="space-y-1 mb-2">
+                    {msg.approvedPlan.map((item) => (
+                      <li key={item.id} className="text-sm text-[#E4E4E7] flex gap-2">
+                        <span className="text-[#71717A]">{item.id}.</span>
+                        <span>{item.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-[#22C55E]">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Plan Approved
+                  </div>
+                </div>
+              )}
 
               {/* Files written indicator */}
               {msg.filesWritten && msg.filesWritten.length > 0 && (
