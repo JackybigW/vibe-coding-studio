@@ -134,10 +134,7 @@ export default function DashboardPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      await client.entities.projects.update({
-        id: String(id),
-        data: { status: "deleted", updated_at: new Date().toISOString() },
-      });
+      await client.entities.projects.delete({ id: String(id) });
       setProjects((prev) => prev.filter((p) => p.id !== id));
       toast.success("Project deleted");
     } catch (err) {

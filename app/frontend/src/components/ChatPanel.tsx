@@ -130,7 +130,6 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   // Load messages for project
   useEffect(() => {
     if (!projectId || !isAuthenticated) return;
-    console.log("[chat] loadMessages fired projectId=", projectId);
     const loadMessages = async () => {
       try {
         const res = await client.entities.messages.query({
@@ -139,16 +138,32 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
           limit: 100,
         });
         if (res?.data?.items) {
-          console.log("[chat] loadMessages replacing messages count=", res.data.items.length);
           setMessages(
-            res.data.items.map((m: Record<string, unknown>) => ({
-              id: m.id as number,
-              role: m.role as "user" | "assistant" | "system",
-              content: m.content as string,
-              agent: m.agent as string,
-              model: m.model as string,
-              created_at: m.created_at as string,
-            }))
+            res.data.items.map((m: Record<string, unknown>) => {
+              const agent = m.agent as string;
+              // Reconstruct approved plan messages saved by a previous session
+              if (agent === "plan_approved") {
+                try {
+                  const items = JSON.parse(m.content as string) as Array<{ id: string; text: string }>;
+                  return {
+                    id: m.id as number,
+                    role: m.role as "user" | "assistant" | "system",
+                    content: "",
+                    agent,
+                    approvedPlan: items,
+                    created_at: m.created_at as string,
+                  };
+                } catch { /* fall through to normal mapping */ }
+              }
+              return {
+                id: m.id as number,
+                role: m.role as "user" | "assistant" | "system",
+                content: m.content as string,
+                agent,
+                model: m.model as string,
+                created_at: m.created_at as string,
+              };
+            })
           );
         }
       } catch (err) {
@@ -178,25 +193,23 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   }, [projectId, selectedModel]);
 
   const appendMessage = useCallback((message: Message) => {
-    setMessages((prev) => {
-      console.log("[chat] appendMessage total=", prev.length + 1, "hasApprovedPlan=", !!message.approvedPlan);
-      return [...prev, message];
-    });
+    setMessages((prev) => [...prev, message]);
   }, []);
 
   // When plan is approved, commit it as a permanent message then clear the interactive card.
   useEffect(() => {
     if (!draftPlan?.isApproved) return;
-    console.log("[chat] committing approved plan items=", draftPlan.items.length);
-    appendMessage({
+    const msg: Message = {
       role: "assistant",
-      agent: "engineer",
-      content: "",
+      agent: "plan_approved",
+      content: JSON.stringify(draftPlan.items),
       approvedPlan: draftPlan.items,
       created_at: new Date().toISOString(),
-    });
+    };
+    appendMessage(msg);
+    void saveMessage(msg);
     clearDraftPlan();
-  }, [draftPlan, appendMessage, clearDraftPlan]);
+  }, [draftPlan, appendMessage, clearDraftPlan, saveMessage]);
 
   const stopTypingLoop = useCallback(() => {
     if (typingTimerRef.current !== null) {
@@ -571,7 +584,6 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
           </div>
         )}
 
-        {/* DEBUG */ console.log("[chat] render messages=", messages.length, "planMsgs=", messages.filter(m => m.approvedPlan).length)}
         {messages.map((msg, i) => (
           <div
             key={i}
@@ -604,7 +616,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
                   : "bg-[#18181B] border border-[#27272A] rounded-2xl rounded-tl-md px-4 py-2.5"
               }`}
             >
-              {msg.role === "assistant" && msg.agent && (
+              {msg.role === "assistant" && msg.agent && !msg.approvedPlan && (
                 <div
                   className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${
                     AGENT_COLORS[msg.agent] || "text-[#A855F7]"
@@ -671,7 +683,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
             </div>
           </div>
         ))}
-        {isLoading && !activeAssistantRendered && !isTyping && progressItems.length === 0 && !draftPlan && (
+        {isLoading && !activeAssistantRendered && !isTyping && progressItems.length === 0 && (!draftPlan || draftPlan.isApproved) && (
           <ThinkingBubble />
         )}
         {(activeAssistantRendered || progressItems.length > 0) && (
