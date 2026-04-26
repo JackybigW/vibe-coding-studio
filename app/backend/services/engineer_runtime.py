@@ -267,7 +267,7 @@ async def run_engineer_session(
             "one-off verification commands.\n\n"
             "## Orchestration Workflow\n\n"
             "For implementation requests:\n"
-            "1. Call `draft_plan` ALONE with a short numbered list (3-7 items) — wait for user approval\n"
+            "1. Briefly acknowledge the user's request in 1-2 sentences, then call `draft_plan` with a short numbered list (3-7 items) — keep draft_plan in its own turn, separate from other tool calls. Wait for user approval.\n"
             "2. After approval, write a detailed implementation plan to "
             "`docs/plans/{YYYY-MM-DD}-{feature-slug}.md` using str_replace_editor. "
             "This plan must expand each approved item into concrete steps with specific file paths, "
