@@ -2,7 +2,7 @@
 
 > **AI 全栈工程师工作台** — 用自然语言描述你的想法，让 Agent 帮你生成、运行、预览完整的 Web 应用。
 
-**🌐 在线体验：[jackybigwang.site](https://jackybigwang.site)**
+**🌐 在线体验：[jackybigwang.site](https://jackybigwang.site)**　｜　试用账号：`test@atoms.demo` / `test1234`
 
 ```
 用户输入一句话  →  Agent 规划 + 编码  →  沙箱自动启动  →  实时预览
@@ -28,15 +28,15 @@ Atoms 是一个**自托管的 AI 编程工作台**，核心能力是让大语言
 
 ### 🤖 SWE Agent 引擎
 - 基于 **ReAct 循环**的自主编码 Agent，工具集包含 `bash`、`str_replace_editor`、`file_operators`、`todo_write` 等
-- **Draft Plan 流程**：Agent 生成方案 → 用户 Approve → Agent 开始执行，防止盲目开工
+- **Draft Plan 流程**：Agent 生成方案（流式输出）→ 用户 Approve → Agent 开始执行，防止盲目开工
 - **Task Checklist**：Agent 将工作拆分为可追踪任务，逐条打勾，进度全程透明
 - **三层 Context 压缩**（micro_compact → auto_compact → manual compact）解决长任务 context 爆炸问题
 - 流式输出 + Thinking 指示器，交互体验媲美主流 AI 产品
 
 ### 🏗️ 隔离沙箱运行时
 - 每个项目独立 **Docker 容器**，代码运行完全隔离
-- 沙箱内置 Node.js 20、Python 3、uv，自动识别项目类型（React/Vue/Flask/FastAPI）
-- `start-preview` 脚本自动安装依赖、启动前后端服务、健康检查就绪后触发预览
+- 沙箱内置 Node.js 20、Python 3、uv、pnpm，自动识别项目类型（React / Vue / Flask / FastAPI）
+- `start-preview` 脚本自动安装依赖、启动服务、健康检查就绪后触发预览
 - 应用 URL 通过 **Nginx 反向代理**暴露，浏览器内嵌 iframe 实时预览
 - 每次 Agent 完成任务后**自动刷新预览**（cache-bust via `?_v` 参数）
 
@@ -47,12 +47,12 @@ Atoms 是一个**自托管的 AI 编程工作台**，核心能力是让大语言
 - Stop 控制：随时中断 Agent，状态安全回收
 
 ### 🔐 认证系统
-- 支持邮箱注册 / 登录
+- 支持邮箱注册 / 登录（Resend 发送验证邮件）
 - **Google 原生 OIDC 登录**（直连 `accounts.google.com`，无第三方中间层），JWT 鉴权
 - 完整的邮箱验证、忘记密码、重置密码流程
 
 ### 🗂️ 项目工作台
-- 多项目管理，每个项目独立工作区
+- 多项目管理，支持**重命名**（三点菜单内联编辑）、删除
 - Monaco Editor 在线代码编辑
 - 文件树浏览 & 文件内容实时同步
 
@@ -66,11 +66,11 @@ Atoms 是一个**自托管的 AI 编程工作台**，核心能力是让大语言
 │  React 18 · TypeScript · Vite · Tailwind · Radix UI  │
 │  Monaco Editor · WebSocket Client                    │
 └────────────────────┬────────────────────────────────┘
-                     │ HTTP / WebSocket
+                     │ HTTPS / WebSocket (Cloudflare Tunnel)
 ┌────────────────────▼────────────────────────────────┐
 │                  FastAPI 后端                          │
 │  Python 3.11 · SQLAlchemy async · Pydantic v2         │
-│  JWT Auth · OIDC · Alembic · Resend Email            │
+│  JWT Auth · Google OIDC · Resend Email               │
 │                                                       │
 │  ┌─────────────────────────────────────────────┐     │
 │  │            SWE Agent Runtime                │     │
@@ -98,12 +98,12 @@ Atoms 是一个**自托管的 AI 编程工作台**，核心能力是让大语言
 | 层级 | 技术 |
 |------|------|
 | **前端** | React 18 · TypeScript · Vite · Tailwind CSS · Radix UI · Monaco Editor |
-| **后端** | Python 3.11 · FastAPI · SQLAlchemy (async) · Pydantic v2 · Alembic |
+| **后端** | Python 3.11 · FastAPI · SQLAlchemy (async) · Pydantic v2 |
 | **数据库** | SQLite（本地） / PostgreSQL（生产） |
 | **AI** | OpenAI-compatible API（默认 MiniMax） · tiktoken · tenacity |
 | **沙箱** | Docker · Node 20 · Python 3 · uv · pnpm |
-| **认证** | JWT · OIDC（Auth0 / Google） · Resend |
-| **部署** | Nginx · systemd · Linux |
+| **认证** | JWT · Google OIDC（直连） · Resend |
+| **部署** | Cloudflare Tunnel · Nginx · systemd · Linux |
 
 ---
 
@@ -146,10 +146,15 @@ DATABASE_URL=sqlite:///./atoms.db
 # JWT
 JWT_SECRET_KEY=your-random-secret-64-chars
 
-# OIDC 社交登录（可选）
-OIDC_ISSUER_URL=https://your-auth0-domain.us.auth0.com
-OIDC_CLIENT_ID=your-client-id
-OIDC_CLIENT_SECRET=your-client-secret
+# Google OIDC（可选）
+OIDC_ISSUER_URL=https://accounts.google.com
+OIDC_CLIENT_ID=your-google-client-id
+OIDC_CLIENT_SECRET=your-google-client-secret
+OIDC_TOKEN_URL=https://oauth2.googleapis.com/token
+
+# 邮件（可选）
+RESEND_API_KEY=your-resend-api-key
+EMAIL_FROM=hello@yourdomain.com
 ```
 
 **3. 启动后端**
@@ -188,10 +193,10 @@ docker build -t atoms-sandbox:latest .
 Agent 生成 Draft Plan（流式输出）
      │
      ▼
-用户审核 → Approve ✓
+用户审核 → Approve ✓  （显示绿色 "Approved ✓" 徽章）
      │
      ▼
-Agent 调用 todo_write 拆分任务
+Agent 调用 todo_write 拆分任务（Checklist 自动展开）
      │
      ▼
 循环执行每个任务：
@@ -230,7 +235,7 @@ atoms/
 │   └── frontend/
 │       ├── src/
 │       │   ├── components/     # UI 组件（ChatPanel、WorkspacePanel 等）
-│       │   ├── pages/          # 页面（ProjectWorkspace、Login 等）
+│       │   ├── pages/          # 页面（Dashboard、ProjectWorkspace、Login 等）
 │       │   ├── contexts/       # React Context（Auth、Workspace）
 │       │   ├── hooks/          # 自定义 Hooks（useDraftPlan 等）
 │       │   └── lib/            # API 客户端、工具函数
@@ -263,13 +268,11 @@ pnpm test
 **生产环境**：[https://jackybigwang.site](https://jackybigwang.site)
 
 - 服务器：腾讯云 Linux，Python 3.11 + Node 20
-- 流量入口：Cloudflare Tunnel（无需暴露公网 IP）→ Nginx → FastAPI / 前端静态文件
+- 流量入口：Cloudflare Tunnel（无需暴露公网 IP）→ Nginx（IPv4 + IPv6）→ FastAPI
 - 进程管理：systemd（`atoms-backend.service`）
 - 数据库：PostgreSQL
 
-## 本地部署
-
-### 生产环境（Linux + systemd + Nginx）
+### 生产环境部署（Linux + systemd + Nginx）
 
 **1. 构建前端**
 
@@ -286,13 +289,10 @@ Description=Atoms Backend (FastAPI)
 After=network.target
 
 [Service]
-User=ubuntu
-WorkingDirectory=/home/ubuntu/atoms/app/backend
+WorkingDirectory=/path/to/atoms/app/backend
 ExecStart=/path/to/python -m uvicorn main:app --host 0.0.0.0 --port 8001
 Restart=always
-
-[Install]
-WantedBy=multi-user.target
+EnvironmentFile=/path/to/atoms/app/.env
 ```
 
 **3. Nginx 反向代理**
@@ -300,18 +300,22 @@ WantedBy=multi-user.target
 ```nginx
 server {
     listen 80;
+    listen 8000;
+    listen [::]:8000;   # Cloudflare Tunnel 走 IPv6
     server_name your-domain.com;
+
+    root /path/to/atoms/app/frontend/dist;
 
     location /api/ {
         proxy_pass http://127.0.0.1:8001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_read_timeout 600s;
     }
 
     location / {
-        root /home/ubuntu/atoms/app/frontend/dist;
-        try_files $uri /index.html;
+        try_files $uri $uri/ /index.html;
     }
 }
 ```
@@ -325,6 +329,8 @@ server {
 - **Draft Plan 审批门**：`asyncio.Event` 实现异步等待，Agent 在用户未 Approve 前真正阻塞
 - **流式渲染**：typewriter 动效 + shimmer Thinking 指示器，交互体验接近 ChatGPT
 - **WebSocket 状态机**：前端 `sessionGenerationRef` 防止跨会话消息串台，stop 信号安全传播
+- **Google OIDC 直连**：绕过 Auth0 等第三方，直接对接 `accounts.google.com`，token exchange 走服务端代理
+- **IPv6 兼容部署**：Nginx 同时监听 IPv4/IPv6，适配 Cloudflare Tunnel 的 `::1` loopback 路由
 
 ---
 
