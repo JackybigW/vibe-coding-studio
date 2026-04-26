@@ -22,7 +22,6 @@ ALLOWED_WORKSPACE_WRITE_ROOTS = (
 PROTECTED_PATHS = (
     PurePosixPath("/workspace/app/backend/core"),
     PurePosixPath("/workspace/app/backend/models"),
-    PurePosixPath("/workspace/app/backend/main.py"),
     PurePosixPath("/workspace/app/backend/lambda_handler.py"),
 )
 
