@@ -27,10 +27,10 @@ target_metadata = Base.metadata
 
 
 def get_database_url():
-    url = config.get_main_option("sqlalchemy.url")
-    if url:
-        return url
-    url = os.environ.get("DATABASE_URL", "")
+    # alembic.ini may store sqlalchemy.url = "" (with literal quotes) — strip them
+    url = (config.get_main_option("sqlalchemy.url") or "").strip().strip('"').strip("'")
+    if not url:
+        url = os.environ.get("DATABASE_URL", "")
     if "postgresql://" in url and "+asyncpg" not in url:
         url = url.replace("postgresql://", "postgresql+asyncpg://")
     return url
