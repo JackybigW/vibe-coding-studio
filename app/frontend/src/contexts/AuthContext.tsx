@@ -57,15 +57,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const storedToken = localStorage.getItem("token");
 
       if (storedToken) {
-        // Try JWT-based auth (email/password login)
-        const meRes = await client.apiCall.invoke({
-          url: "/api/v1/auth/me",
-          method: "GET",
-          options: { headers: { Authorization: `Bearer ${storedToken}` } },
+        // Try JWT-based auth (email/password login) — use fetch directly to
+        // avoid SDK axios instance having a stale (empty) Authorization header
+        // from app initialization time.
+        const meRes = await fetch("/api/v1/auth/me", {
+          headers: { Authorization: `Bearer ${storedToken}` },
         });
-        if (meRes?.data && !meRes.data.detail) {
-          const authData = meRes.data;
-          const profile = await fetchProfile(storedToken);
+        if (meRes.ok) {
+          const authData = await meRes.json();
+          const profileRes = await fetch("/api/v1/profile/me", {
+            headers: { Authorization: `Bearer ${storedToken}` },
+          });
+          const profile = profileRes.ok ? await profileRes.json() : null;
           setUser({
             id: profile?.id ?? 0,
             user_id: authData.id || authData.user_id || "",
