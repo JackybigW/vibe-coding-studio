@@ -437,10 +437,11 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       if (stopRequestedRef.current) {
         return;
       }
-      const apiBaseUrl = new URL(getAPIBaseURL());
-      const wsProtocol = apiBaseUrl.protocol === "https:" ? "wss:" : "ws:";
+      const apiBase = getAPIBaseURL();
+      const wsOrigin = apiBase ? new URL(apiBase) : window.location;
+      const wsProtocol = wsOrigin.protocol === "https:" ? "wss:" : "ws:";
       const session = createAgentRealtimeSession({
-        url: `${wsProtocol}//${apiBaseUrl.host}/api/v1/agent/session/ws?ticket=${ticket}`,
+        url: `${wsProtocol}//${wsOrigin.host}/api/v1/agent/session/ws?ticket=${ticket}`,
         onEvent: (event) => {
           if (sessionGenerationRef.current !== sessionGeneration) {
             return;
