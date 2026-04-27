@@ -194,6 +194,59 @@ exit 1
     assert result.returncode != 0
     assert "definitely_missing_atoms_dependency" in result.stdout + result.stderr
 
+
+def test_build_backend_check_command_does_not_expand_healthcheck_shell_payload(tmp_path):
+    backend_dir = tmp_path / "app" / "backend"
+    backend_dir.mkdir(parents=True)
+    marker = tmp_path / "pwned"
+    (backend_dir / "main.py").write_text(
+        """
+class Route:
+    path = "/health"
+
+class App:
+    routes = [Route()]
+
+app = App()
+""".lstrip(),
+        encoding="utf-8",
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+if [ "$1" = "venv" ] && [ "$2" = ".venv" ]; then
+  mkdir -p .venv/bin
+  ln -sf {shlex.quote(sys.executable)} .venv/bin/python
+  exit 0
+fi
+echo "unexpected uv args: $*" >&2
+exit 1
+""",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            _build_backend_check_command(str(backend_dir), f"/health$(touch {marker})"),
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Missing /health$(" in result.stdout + result.stderr
+    assert not marker.exists()
+
+
 @pytest.mark.asyncio
 async def test_engineer_runtime_pushback_on_incomplete_tasks(monkeypatch, tmp_path):
     events = []

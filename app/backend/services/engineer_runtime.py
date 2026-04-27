@@ -106,7 +106,7 @@ for module_name in sorted(module_names):
         "([ ! -f requirements.txt ] || "
         "uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1) && "
         ".venv/bin/python - <<'PY' && "
-        f".venv/bin/python -c {route_check!r} 2>&1\n"
+        f".venv/bin/python -c {shlex.quote(route_check)} 2>&1\n"
         f"{import_scan.strip()}\n"
         "PY\n"
     )
