@@ -143,6 +143,21 @@ def test_smoke_contract_not_required_for_health_only_backend(tmp_path):
     assert smoke_contract_required(openapi) is False
 
 
+@pytest.mark.asyncio
+async def test_preview_smoke_runner_reports_missing_contract_when_api_routes_exist(tmp_path):
+    class Sandbox:
+        async def smoke_request(self, container_name, *, service, method, path, headers=None, json_body=None):
+            assert path == "/openapi.json"
+            return 200, {"content-type": "application/json"}, b'{"paths":{"/health":{"get":{}},"/api/generate":{"post":{}}}}'
+
+    result = await PreviewSmokeRunner(Sandbox()).require_contract_if_needed("container-1", tmp_path)
+
+    assert result.ok is False
+    assert result.failures == [
+        SmokeFailure(name=".atoms/smoke.json", reason="backend exposes API routes but smoke contract is missing")
+    ]
+
+
 def test_load_smoke_contract_rejects_non_list_checks(tmp_path):
     write_smoke_contract(tmp_path, {"version": 1, "checks": {"name": "health"}})
 

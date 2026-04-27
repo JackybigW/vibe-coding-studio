@@ -174,6 +174,40 @@ class PreviewSmokeRunner:
     def __init__(self, sandbox_service: Any):
         self.sandbox_service = sandbox_service
 
+    async def require_contract_if_needed(self, container_name: str, host_root: Path) -> SmokeResult:
+        try:
+            contract = load_smoke_contract(host_root)
+        except ValueError:
+            return SmokeResult(ok=True, failures=[])
+        if contract is not None:
+            return SmokeResult(ok=True, failures=[])
+
+        status, headers, body = await self.sandbox_service.smoke_request(
+            container_name,
+            service="backend",
+            method="GET",
+            path="/openapi.json",
+        )
+        if status != 200:
+            return SmokeResult(ok=True, failures=[])
+        try:
+            openapi = json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError:
+            return SmokeResult(ok=True, failures=[])
+
+        if not smoke_contract_required(openapi):
+            return SmokeResult(ok=True, failures=[])
+
+        return SmokeResult(
+            ok=False,
+            failures=[
+                SmokeFailure(
+                    name=".atoms/smoke.json",
+                    reason="backend exposes API routes but smoke contract is missing",
+                )
+            ],
+        )
+
     async def run(self, container_name: str, host_root: Path) -> SmokeResult:
         contract = load_smoke_contract(host_root)
         if contract is None:
