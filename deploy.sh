@@ -41,7 +41,7 @@ fail() { echo "    ✗ $1"; exit 1; }
 # =============================================================================
 # 前置检查：确保本地环境和服务器可达
 # =============================================================================
-log "[0/3] 前置检查..."
+log "[0/4] 前置检查..."
 
 # 确认在正确的 git 仓库里
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -59,7 +59,7 @@ ok "服务器 SSH 可达"
 # =============================================================================
 # 第一步：本地 commit → push 到 GitHub
 # =============================================================================
-log "[1/3] 提交并推送到 GitHub..."
+log "[1/4] 提交并推送到 GitHub..."
 
 git add -A
 
@@ -91,7 +91,7 @@ LOCAL_COMMIT="$(git rev-parse HEAD)"
 #   logs        — 服务器运行日志，不同步
 #   *.db        — 本地 SQLite 数据库，服务器用 PostgreSQL
 # =============================================================================
-log "[2/3] rsync 同步文件到服务器..."
+log "[2/4] rsync 同步文件到服务器..."
 
 rsync -az --delete \
   --exclude='.git' \
@@ -157,8 +157,19 @@ ssh "$SERVER" bash << 'REMOTE'
     exit 1
   fi
 
-  # 快速 health check
-  HEALTH=$(curl -s http://localhost:8001/health)
+  # 快速 health check；后端 active 后端口可能还需要一两秒才接受连接。
+  HEALTH=""
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if HEALTH=$(curl -fsS http://localhost:8001/health 2>/dev/null); then
+      break
+    fi
+    sleep 1
+  done
+  if [ -z "$HEALTH" ]; then
+    echo "  → health check failed ✗"
+    journalctl -u atoms-backend --no-pager -n 20
+    exit 1
+  fi
   echo "  → health check: $HEALTH"
 REMOTE
 
