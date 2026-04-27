@@ -182,6 +182,9 @@ docker build -t atoms-sandbox:latest .
 
 访问 `http://localhost:3000` 开始使用。
 
+生产服务器代理、Docker 拉镜像、GitHub 拉取和沙箱镜像重建约定见
+[`docs/server-operations.md`](docs/server-operations.md)。
+
 ---
 
 ## Agent 工作流
