@@ -1,10 +1,18 @@
+import os
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.engineer_runtime import _probe_backend_health, run_engineer_session
+from services.engineer_runtime import (
+    _build_backend_check_command,
+    _probe_backend_health,
+    run_engineer_session,
+)
 from services.agent_bootstrap import BootstrapContext
 
 class FakeResult:
@@ -87,7 +95,7 @@ def scan_barcode(image):
     class Sandbox:
         async def exec(self, container_name, command):
             recorded.append(command)
-            return 0, "ok", ""
+            return 0, "ATOMS_BACKEND_CHECK_OK\n", ""
 
     has_backend, error = await _probe_backend_health(
         Sandbox(),
@@ -100,7 +108,91 @@ def scan_barcode(image):
     assert error is None
     assert len(recorded) == 1
     assert "importlib.import_module(module_name)" in recorded[0]
-    assert "pyzbar.pyzbar" in recorded[0]
+
+@pytest.mark.asyncio
+async def test_backend_probe_rejects_ok_stdout_when_command_fails(tmp_path):
+    class Contract:
+        backend = SimpleNamespace(
+            command="cd /workspace/app/backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000",
+            healthcheck_path="/health",
+        )
+
+    class Sandbox:
+        async def exec(self, container_name, command):
+            return 1, "some output\nok", "boom"
+
+    has_backend, error = await _probe_backend_health(
+        Sandbox(),
+        "fake-container",
+        tmp_path,
+        lambda root: Contract(),
+    )
+
+    assert has_backend is True
+    assert error is not None
+    assert "Backend code check FAILED" in error
+    assert "some output\nokboom" in error
+
+
+def test_build_backend_check_command_quotes_backend_dir():
+    backend_dir = "/workspace/app/backend; echo pwned"
+
+    command = _build_backend_check_command(backend_dir, "/health")
+
+    assert command.startswith(f"cd {shlex.quote(backend_dir)} && ")
+    assert f"cd {backend_dir} && " not in command
+    assert "uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1)" in command
+    assert "|| true" not in command
+
+
+def test_build_backend_check_command_detects_lazy_missing_import(tmp_path):
+    backend_dir = tmp_path / "app" / "backend"
+    backend_dir.mkdir(parents=True)
+    (backend_dir / "main.py").write_text(
+        """
+class Route:
+    path = "/health"
+
+class App:
+    routes = [Route()]
+
+app = App()
+
+def lazily_import_dependency():
+    from definitely_missing_atoms_dependency import thing
+    return thing
+""".lstrip(),
+        encoding="utf-8",
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+if [ "$1" = "venv" ] && [ "$2" = ".venv" ]; then
+  mkdir -p .venv/bin
+  ln -sf {shlex.quote(sys.executable)} .venv/bin/python
+  exit 0
+fi
+echo "unexpected uv args: $*" >&2
+exit 1
+""",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+
+    result = subprocess.run(
+        ["bash", "-lc", _build_backend_check_command(str(backend_dir), "/health")],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "definitely_missing_atoms_dependency" in result.stdout + result.stderr
 
 @pytest.mark.asyncio
 async def test_engineer_runtime_pushback_on_incomplete_tasks(monkeypatch, tmp_path):

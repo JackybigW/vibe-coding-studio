@@ -57,54 +57,12 @@ def _extract_backend_dir(command: str) -> str:
     return m.group(1) if m else "/workspace/app/backend"
 
 
-def _host_backend_dir(host_root: Path, backend_dir: str) -> Path:
-    if backend_dir.startswith("/workspace/"):
-        return host_root / backend_dir.removeprefix("/workspace/")
-    return host_root / backend_dir.lstrip("/")
-
-
-def _collect_backend_import_modules(backend_root: Path) -> list[str]:
-    import ast
-
-    if not backend_root.exists():
-        return []
-    local_names = {
-        path.stem
-        for path in backend_root.glob("*.py")
-        if path.name != "__init__.py"
-    }
-    local_names.update(
-        path.name
-        for path in backend_root.iterdir()
-        if path.is_dir() and path.name != ".venv"
-    )
-
-    module_names = set()
-    for path in backend_root.rglob("*.py"):
-        if ".venv" in path.parts:
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        except (OSError, SyntaxError):
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                module_names.update(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                module_names.add(node.module)
-
-    return sorted(
-        module_name
-        for module_name in module_names
-        if module_name.split(".", 1)[0] not in local_names
-    )
-
-
 def _build_backend_check_command(backend_dir: str, healthcheck_path: str) -> str:
+    import shlex
+
     import_scan = r"""
 import ast
 import importlib
-import os
 from pathlib import Path
 
 root = Path.cwd()
@@ -130,12 +88,6 @@ for path in root.rglob("*.py"):
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             module_names.add(node.module)
 
-module_names.update(
-    module_name
-    for module_name in os.environ.get("ATOMS_BACKEND_EXPECTED_IMPORTS", "").split(",")
-    if module_name
-)
-
 for module_name in sorted(module_names):
     if module_name.split(".", 1)[0] in local_names:
         continue
@@ -146,13 +98,13 @@ for module_name in sorted(module_names):
         "routes = [getattr(r, 'path', '') for r in app.routes]; "
         f"assert {healthcheck_path!r} in routes, "
         f"{('Missing ' + healthcheck_path + ' route. Found: ')!r} + str(routes); "
-        "print('ok')"
+        "print('ATOMS_BACKEND_CHECK_OK')"
     )
     return (
-        f"cd {backend_dir} && "
+        f"cd {shlex.quote(backend_dir)} && "
         "([ -x .venv/bin/python ] || uv venv .venv) && "
         "([ ! -f requirements.txt ] || "
-        "uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1 || true) && "
+        "uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1) && "
         ".venv/bin/python - <<'PY' && "
         f".venv/bin/python -c {route_check!r} 2>&1\n"
         f"{import_scan.strip()}\n"
@@ -183,15 +135,11 @@ async def _probe_backend_health(
     backend_dir = _extract_backend_dir(contract.backend.command)
     healthcheck_path = contract.backend.healthcheck_path or "/health"
     check_cmd = _build_backend_check_command(backend_dir, healthcheck_path)
-    expected_imports = ",".join(_collect_backend_import_modules(_host_backend_dir(host_root, backend_dir)))
-    if expected_imports:
-        import shlex
-
-        check_cmd = f"export ATOMS_BACKEND_EXPECTED_IMPORTS={shlex.quote(expected_imports)} && {check_cmd}"
 
     try:
-        _, out, err = await sandbox_service.exec(container_name, check_cmd)
-        if out.strip().endswith("ok"):
+        returncode, out, err = await sandbox_service.exec(container_name, check_cmd)
+        stdout_lines = out.strip().splitlines()
+        if returncode == 0 and stdout_lines and stdout_lines[-1] == "ATOMS_BACKEND_CHECK_OK":
             return True, None
         error_output = (out + err).strip() or "(no output)"
     except Exception as exc:
