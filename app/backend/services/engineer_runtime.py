@@ -116,8 +116,13 @@ def _extract_terminate_summary(result: object) -> str:
     if not isinstance(result, str):
         return ""
 
+    terminate_prefix = "The interaction has been completed with status:"
+    terminate_index = result.rfind(terminate_prefix)
+    if terminate_index == -1:
+        return ""
+
     marker = "\nSummary:"
-    marker_index = result.find(marker)
+    marker_index = result.find(marker, terminate_index)
     if marker_index == -1:
         return ""
     return result[marker_index + len(marker):].strip()
@@ -508,6 +513,9 @@ async def run_engineer_session(
             await log_step(f"Completion gate: reached max rounds ({MAX_COMPLETION_ROUNDS}), proceeding.")
 
         await log_step("agent run completed")
+        final_summary = _extract_terminate_summary(result)
+        if final_summary:
+            await traced_event_sink({"type": "assistant", "agent": agent.name, "content": final_summary})
 
         if stop_event is not None and stop_event.is_set():
             logger.info("%s run_engineer_session stopped after agent.run", prefix)
@@ -756,9 +764,6 @@ async def run_engineer_session(
 
         recorder.set_status("completed")
         await log_step("run completed")
-        final_summary = _extract_terminate_summary(result)
-        if final_summary:
-            await traced_event_sink({"type": "assistant", "agent": agent.name, "content": final_summary})
         await traced_event_sink(
             {
                 "type": "done",

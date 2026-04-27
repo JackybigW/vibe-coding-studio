@@ -10,6 +10,7 @@ import pytest
 
 from services.engineer_runtime import (
     _build_backend_check_command,
+    _extract_terminate_summary,
     _probe_backend_health,
     run_engineer_session,
 )
@@ -144,11 +145,126 @@ async def test_engineer_runtime_surfaces_terminate_summary_before_done(monkeypat
         preview_contract_loader=lambda p: None,
     )
 
-    summary_event = {"type": "assistant", "agent": "engineer", "content": "Built the app and verified preview."}
-    summary_index = events.index(summary_event)
+    summary_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.get("type") == "assistant"
+        and event.get("agent") == "engineer"
+        and event.get("content") == "Built the app and verified preview."
+    )
     done_index = next(index for index, event in enumerate(events) if event.get("type") == "done")
 
     assert summary_index < done_index
+
+
+def test_extract_terminate_summary_uses_last_terminate_output():
+    result = (
+        "tool output\n"
+        "Summary: wrong\n"
+        "...\n"
+        "The interaction has been completed with status: success\n"
+        "Summary: right"
+    )
+
+    assert _extract_terminate_summary(result) == "right"
+    assert _extract_terminate_summary("tool output\nSummary: wrong") == ""
+    assert _extract_terminate_summary(None) == ""
+
+
+@pytest.mark.asyncio
+async def test_engineer_runtime_emits_summary_before_preview_failure(monkeypatch):
+    events = []
+
+    async def fake_event_sink(event):
+        events.append(event)
+
+    monkeypatch.setattr("services.agent_bootstrap.classify_user_request_async", AsyncMock(return_value=BootstrapContext(mode="implementation", requires_backend_readme=False, requires_draft_plan=True)))
+
+    fake_files_service = MagicMock()
+    fake_files_service.get_list = AsyncMock(return_value={"items": []})
+    monkeypatch.setattr("services.project_files.Project_filesService", lambda db: fake_files_service)
+
+    fake_messages_service = MagicMock()
+    fake_messages_service.get_list = AsyncMock(return_value={"items": []})
+    monkeypatch.setattr("services.messages.MessagesService", lambda db: fake_messages_service)
+
+    fake_sessions_service = MagicMock()
+    fake_sessions_service.get_by_project = AsyncMock(return_value=None)
+
+    fake_task_store = MagicMock()
+    fake_task_store.list_tasks = AsyncMock(return_value=[FakeTask("Task 1", "completed")])
+    monkeypatch.setattr("services.agent_task_store.AgentTaskStore", lambda db: fake_task_store)
+
+    class FakeGate:
+        approved_request_key = "req_123"
+
+        def check_write(self, path):
+            pass
+
+        def check_todo_write(self):
+            pass
+
+    monkeypatch.setattr("services.approval_gate.ApprovalGate", lambda *args, **kwargs: FakeGate())
+
+    class FakeBashSession:
+        def has_verification_run(self):
+            return True
+
+    monkeypatch.setattr("services.engineer_runtime.ContainerBashSession", lambda *args, **kwargs: FakeBashSession())
+
+    class SummaryAgent(FakeAgent):
+        async def run(self, prompt):
+            self.run_calls += 1
+            self.prompts.append(prompt)
+            return "The interaction has been completed with status: success\nSummary: Built the app and verified preview."
+
+    agent = SummaryAgent()
+
+    class FakeAgentCls:
+        @staticmethod
+        def build_for_workspace(*args, **kwargs):
+            return agent
+
+    class PreviewFailureSandboxService(FakeSandboxService):
+        async def start_preview_services(self, container_name, env):
+            return 2, "", "start-preview failed"
+
+    def fake_preview_url_builder(key):
+        return {"preview_frontend_url": "http://front", "preview_backend_url": "http://back"}
+
+    await run_engineer_session(
+        db=FakeDB(),
+        user_id="user-1",
+        project_id=42,
+        prompt="build something",
+        model="fake-model",
+        event_sink=fake_event_sink,
+        workspace_service_factory=lambda: FakeWorkspaceService(),
+        sandbox_service_factory=lambda: PreviewFailureSandboxService(),
+        agent_cls=FakeAgentCls,
+        llm_builder=lambda model: None,
+        workspace_runtime_sessions_service_cls=lambda db: fake_sessions_service,
+        preview_session_fields_factory=lambda: {"preview_session_key": "123"},
+        preview_url_builder=fake_preview_url_builder,
+        preview_contract_loader=lambda p: None,
+    )
+
+    summary_indexes = [
+        index
+        for index, event in enumerate(events)
+        if event.get("type") == "assistant"
+        and event.get("agent") == "engineer"
+        and event.get("content") == "Built the app and verified preview."
+    ]
+    preview_failed_index = next(
+        index
+        for index, event in enumerate(events)
+        if event.get("type") == "preview_failed"
+    )
+
+    assert len(summary_indexes) == 1
+    assert summary_indexes[0] < preview_failed_index
+    assert all(index < preview_failed_index for index in summary_indexes)
 
 @pytest.mark.asyncio
 async def test_backend_probe_scans_lazy_imports(tmp_path):
