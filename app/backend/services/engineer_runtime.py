@@ -401,8 +401,8 @@ async def run_engineer_session(
             "Do NOT create a .env file that sets VITE_ATOMS_PREVIEW_BACKEND_BASE — "
             "this variable is injected by start-preview at runtime and must not be hardcoded.\n"
             "For backend verification use ONLY the static import test — never start uvicorn manually:\n"
-            "  cd /workspace/app/backend && uv pip install -r requirements.txt -q 2>&1 && uv run python -c \"from main import app; print('ok')\"\n"
-            "Always install requirements before running the import test. "
+            "  cd /workspace/app/backend && ([ -x .venv/bin/python ] || uv venv .venv) && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1 && .venv/bin/python -c \"from main import app; print('ok')\"\n"
+            "Always install requirements with `uv pip install --python .venv/bin/python`; do not use `.venv/bin/pip`, `pip3 install`, or `python3 -m pip install`. "
             "This confirms imports and app construction without starting a process.\n"
             "If you ever start a background process for any reason, do NOT kill it before calling terminate.\n\n"
             "## Orchestration Workflow\n\n"
@@ -420,9 +420,9 @@ async def run_engineer_session(
             "   For frontend apps, create infrastructure files FIRST (package.json, vite.config.ts, index.html, main.tsx, tsconfig.json) "
             "before writing any component files. This ensures pnpm install and builds work from the start.\\n"
             "5. Verify before finishing — use ONLY these commands, do NOT start background servers:\\n"
-            "   Backend: cd /workspace/app/backend && uv pip install -r requirements.txt -q 2>&1 && uv run python -c \"from main import app; print('ok')\"\\n"
+            "   Backend: cd /workspace/app/backend && ([ -x .venv/bin/python ] || uv venv .venv) && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1 && .venv/bin/python -c \"from main import app; print('ok')\"\\n"
             "   Frontend: cd /workspace/app/frontend && pnpm run build 2>&1 | tail -5\\n"
-            "   Always install requirements before the import test.\\n"
+            "   Always install requirements with `uv pip install --python .venv/bin/python`; do not use `.venv/bin/pip`, `pip3 install`, or `python3 -m pip install`.\\n"
             "   A completion gate re-runs the backend import check after you terminate; if it fails you will be asked to fix it.\\n"
             "6. You MUST ensure ALL tasks are marked as 'completed' via `task_update` BEFORE you finish. Do NOT attempt "
             "to finish if any task is still pending or in_progress.\\n"
@@ -495,7 +495,7 @@ async def run_engineer_session(
             if tasks and not verification_ok:
                 pushback_msgs.append(
                     "- No verification command run. For backend run: "
-                    "cd /workspace/app/backend && uv run python -c \"from main import app; print('ok')\". "
+                    "cd /workspace/app/backend && ([ -x .venv/bin/python ] || uv venv .venv) && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1 && .venv/bin/python -c \"from main import app; print('ok')\". "
                     "For frontend run: pnpm run build."
                 )
 
