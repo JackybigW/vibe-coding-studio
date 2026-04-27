@@ -1,7 +1,10 @@
-import pytest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
-from services.engineer_runtime import run_engineer_session
+
+import pytest
+
+from services.engineer_runtime import _probe_backend_health, run_engineer_session
 from services.agent_bootstrap import BootstrapContext
 
 class FakeResult:
@@ -51,6 +54,53 @@ class FakeTask:
     def __init__(self, subject, status):
         self.subject = subject
         self.status = status
+
+@pytest.mark.asyncio
+async def test_backend_probe_scans_lazy_imports(tmp_path):
+    backend_dir = tmp_path / "app" / "backend"
+    backend_dir.mkdir(parents=True)
+    (backend_dir / "main.py").write_text(
+        """
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+def scan_barcode(image):
+    from pyzbar.pyzbar import decode
+    return decode(image)
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    class Contract:
+        backend = SimpleNamespace(
+            command="cd /workspace/app/backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000",
+            healthcheck_path="/health",
+        )
+
+    recorded = []
+
+    class Sandbox:
+        async def exec(self, container_name, command):
+            recorded.append(command)
+            return 0, "ok", ""
+
+    has_backend, error = await _probe_backend_health(
+        Sandbox(),
+        "fake-container",
+        tmp_path,
+        lambda root: Contract(),
+    )
+
+    assert has_backend is True
+    assert error is None
+    assert len(recorded) == 1
+    assert "importlib.import_module(module_name)" in recorded[0]
+    assert "pyzbar.pyzbar" in recorded[0]
 
 @pytest.mark.asyncio
 async def test_engineer_runtime_pushback_on_incomplete_tasks(monkeypatch, tmp_path):
