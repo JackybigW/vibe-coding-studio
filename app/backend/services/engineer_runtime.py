@@ -390,7 +390,7 @@ async def run_engineer_session(
             "and include a GET /health endpoint that returns HTTP 200 `{\"status\": \"healthy\"}`. "
             "You MUST also create app/backend/requirements.txt containing `fastapi`, `uvicorn`, and any other dependencies.\n"
             "If your app has any backend API beyond GET /health, you MUST create /workspace/.atoms/smoke.json. "
-            "The runtime executes this file after preview starts and before preview_ready. "
+            "The runtime reads this file and executes the checks after preview starts and before preview_ready. "
             "Include at least one smoke check for each user-facing backend workflow. "
             "For binary image responses, set expect.content_type and expect.body_prefix_base64. "
             "For PNG responses, use body_prefix_base64 iVBORw0KGgo=. "

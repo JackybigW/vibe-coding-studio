@@ -533,6 +533,11 @@ def test_engineer_prompt_requires_smoke_contract_for_backend_apps(monkeypatch):
 
     assert response.status_code == 200
     assert ".atoms/smoke.json" in captured_prompt["value"]
+    assert "/workspace/.atoms/smoke.json" in captured_prompt["value"]
+    assert "backend API beyond GET /health" in captured_prompt["value"]
+    assert "before preview_ready" in captured_prompt["value"]
+    assert "reads this file and executes the checks" in captured_prompt["value"]
+    assert "executes this file" not in captured_prompt["value"]
     assert "body_prefix_base64" in captured_prompt["value"]
 
 
