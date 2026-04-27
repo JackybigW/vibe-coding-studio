@@ -957,6 +957,12 @@ async def test_engineer_runtime_blocks_preview_ready_on_smoke_failure(monkeypatc
 
     fake_sessions_service = MagicMock()
     fake_sessions_service.get_by_project = AsyncMock(return_value=None)
+    fake_session_record = MagicMock()
+    fake_session_record.preview_session_key = "123"
+    fake_session_record.preview_expires_at = None
+    fake_session_record.frontend_status = "running"
+    fake_session_record.backend_status = "running"
+    fake_sessions_service.create = AsyncMock(return_value=fake_session_record)
 
     class FakeGate:
         approved_request_key = "req_123"
@@ -969,12 +975,15 @@ async def test_engineer_runtime_blocks_preview_ready_on_smoke_failure(monkeypatc
     class SummaryAgent(FakeAgent):
         async def run(self, prompt):
             self.run_calls += 1
+            self.prompts.append(prompt)
             return "The interaction has been completed with status: success\nSummary: ok"
+
+    agent = SummaryAgent()
 
     class FakeAgentCls:
         @staticmethod
         def build_for_workspace(*args, **kwargs):
-            return SummaryAgent()
+            return agent
 
     host_root = tmp_path / "workspace"
     atoms_dir = host_root / ".atoms"
@@ -1022,11 +1031,24 @@ async def test_engineer_runtime_blocks_preview_ready_on_smoke_failure(monkeypatc
         )
 
     class SmokeFailSandbox(FakeSandboxService):
+        def __init__(self):
+            self.start_calls = 0
+            self.smoke_calls = 0
+
+        async def start_preview_services(self, container_name, env):
+            self.start_calls += 1
+            return 0, "out", "err"
+
         async def exec(self, container_name, command):
             return 0, "ATOMS_BACKEND_CHECK_OK\n", ""
 
         async def smoke_request(self, container_name, *, service, method, path, headers=None, json_body=None):
-            return 200, {"content-type": "application/json"}, b'{"content":"not png"}'
+            self.smoke_calls += 1
+            if self.smoke_calls == 1:
+                return 200, {"content-type": "application/json"}, b'{"content":"not png"}'
+            return 200, {"content-type": "image/png"}, b"\x89PNG\r\n\x1a\nabc"
+
+    sandbox = SmokeFailSandbox()
 
     result = await run_engineer_session(
         db=FakeDB(),
@@ -1036,7 +1058,7 @@ async def test_engineer_runtime_blocks_preview_ready_on_smoke_failure(monkeypatc
         model="fake-model",
         event_sink=fake_event_sink,
         workspace_service_factory=lambda: Workspace(),
-        sandbox_service_factory=lambda: SmokeFailSandbox(),
+        sandbox_service_factory=lambda: sandbox,
         agent_cls=FakeAgentCls,
         llm_builder=lambda model: None,
         workspace_runtime_sessions_service_cls=lambda db: fake_sessions_service,
@@ -1048,10 +1070,19 @@ async def test_engineer_runtime_blocks_preview_ready_on_smoke_failure(monkeypatc
     run_logs = AgentRunLogStore(base_root=_WORKSPACES_ROOT)
     latest = run_logs.read_latest_run(user_id="user-1", project_id=42)
 
-    assert result is False
+    assert result is True
     assert any(event.get("type") == "preview_failed" and event.get("reason") == "smoke_failed" for event in events)
-    assert not any(event.get("type") == "preview_ready" for event in events)
-    assert latest["status"] == "failed"
+    assert any(event.get("type") == "preview_ready" for event in events)
+    assert latest["status"] == "completed"
+    assert agent.run_calls == 2
+    assert sandbox.start_calls == 2
+    repair_prompts = [
+        event["content"]
+        for event in events
+        if event.get("type") == "assistant" and event.get("agent") == "system"
+    ]
+    assert any("SMOKE CHECK FAILURE" in prompt for prompt in repair_prompts)
+    assert any("generate png: expected content-type image/png, got application/json" in prompt for prompt in repair_prompts)
 
 
 @pytest.mark.asyncio

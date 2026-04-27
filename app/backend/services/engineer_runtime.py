@@ -133,6 +133,21 @@ def _extract_terminate_summary(result: object) -> str:
     return segment[marker_index + len(marker):].strip()
 
 
+def _build_smoke_repair_prompt(reason_code: str, failures: list[str]) -> str:
+    failure_lines = "\n".join(f"- {reason}" for reason in failures)
+    return (
+        "SMOKE CHECK FAILURE:\n"
+        f"- reason_code: {reason_code}\n"
+        f"- failures:\n{failure_lines}\n"
+        "Fix the generated workspace so every .atoms/smoke.json check passes, "
+        "then update todo status and run the required static import/build verification. "
+        "If an endpoint returns an image, file, or other binary payload from FastAPI, "
+        "return a Response/FileResponse/StreamingResponse with the correct media_type; "
+        "do not return raw bytes as JSON. For PNG, the response must be HTTP 200, "
+        "Content-Type image/png, and start with the PNG signature."
+    )
+
+
 async def _probe_backend_health(
     sandbox_service: Any,
     container_name: str,
@@ -530,53 +545,133 @@ async def run_engineer_session(
                 json.dumps(history_serializer(agent_messages), ensure_ascii=False),
             )
 
-        try:
-            with telemetry.span("workspace.snapshot_sync", category="workspace"):
-                snapshot = workspace_service.snapshot_files(paths.host_root)
-                changed_paths: list[str] = []
-                await log_step(f"snapshot captured files={len(snapshot)}")
+        async def sync_workspace_snapshot() -> None:
+            try:
+                with telemetry.span("workspace.snapshot_sync", category="workspace"):
+                    snapshot = workspace_service.snapshot_files(paths.host_root)
+                    changed_paths: list[str] = []
+                    await log_step(f"snapshot captured files={len(snapshot)}")
 
-                for rel_path, file_info in snapshot.items():
-                    file_name = Path(rel_path).name
-                    existing_list = await files_service.get_list(
-                        skip=0,
-                        limit=1,
-                        user_id=user_id,
-                        query_dict={"project_id": project_id, "file_path": rel_path},
-                    )
-                    existing = existing_list["items"]
-                    if existing:
-                        existing_record = existing[0]
-                        if existing_record.content != file_info["content"]:
-                            await files_service.update(
-                                existing_record.id,
-                                {"content": file_info["content"]},
+                    for rel_path, file_info in snapshot.items():
+                        file_name = Path(rel_path).name
+                        existing_list = await files_service.get_list(
+                            skip=0,
+                            limit=1,
+                            user_id=user_id,
+                            query_dict={"project_id": project_id, "file_path": rel_path},
+                        )
+                        existing = existing_list["items"]
+                        if existing:
+                            existing_record = existing[0]
+                            if existing_record.content != file_info["content"]:
+                                await files_service.update(
+                                    existing_record.id,
+                                    {"content": file_info["content"]},
+                                    user_id=user_id,
+                                )
+                                changed_paths.append(rel_path)
+                        else:
+                            await files_service.create(
+                                {
+                                    "project_id": project_id,
+                                    "file_path": rel_path,
+                                    "file_name": file_name,
+                                    "content": file_info["content"],
+                                    "is_directory": False,
+                                },
                                 user_id=user_id,
                             )
                             changed_paths.append(rel_path)
-                    else:
-                        await files_service.create(
-                            {
-                                "project_id": project_id,
-                                "file_path": rel_path,
-                                "file_name": file_name,
-                                "content": file_info["content"],
-                                "is_directory": False,
-                            },
-                            user_id=user_id,
-                        )
-                        changed_paths.append(rel_path)
 
-                await traced_event_sink({"type": "workspace_sync", "changed_files": changed_paths})
-                await log_step(f"workspace sync updated_files={len(changed_paths)}")
-        except Exception as sync_exc:
-            logger.warning("%s workspace sync failed: %s", prefix, sync_exc)
-            recorder.error(f"workspace sync failed: {sync_exc}")
+                    await traced_event_sink({"type": "workspace_sync", "changed_files": changed_paths})
+                    await log_step(f"workspace sync updated_files={len(changed_paths)}")
+            except Exception as sync_exc:
+                logger.warning("%s workspace sync failed: %s", prefix, sync_exc)
+                recorder.error(f"workspace sync failed: {sync_exc}")
+
+        await sync_workspace_snapshot()
 
         if stop_event is not None and stop_event.is_set():
             logger.info("%s run_engineer_session stopped before preview startup", prefix)
             recorder.set_status("stopped")
             return False
+
+        async def rerun_preview_after_smoke_repair(repair_prompt: str) -> tuple[bool, list[str]]:
+            nonlocal result
+
+            await log_step("Preview smoke gate failed. Continuing same agent for repair.")
+            await traced_event_sink(
+                {
+                    "type": "assistant",
+                    "agent": "system",
+                    "content": repair_prompt,
+                }
+            )
+            with telemetry.span("agent.preview_repair", category="agent"):
+                result = await agent.run(repair_prompt)
+            await sync_workspace_snapshot()
+
+            await log_step("starting preview services after smoke repair")
+            with telemetry.span("preview.start_services", category="preview"):
+                returncode, stdout, stderr = await sandbox_service.start_preview_services(container_name, env=preview_env)
+            if returncode != 0:
+                stderr_lines = stderr.strip().splitlines() if stderr.strip() else []
+                stderr_tail = stderr_lines[-1] if stderr_lines else ""
+                recorder.error(f"preview start failed after smoke repair returncode={returncode} stderr={stderr_tail}")
+                return False, [f"start-preview after smoke repair failed: {stderr_tail or stdout.strip() or 'no output'}"]
+
+            ports = await sandbox_service.get_runtime_ports(container_name)
+            frontend_port = ports.get("frontend_port")
+            if not frontend_port:
+                return False, ["preview did not expose a frontend port after smoke repair"]
+
+            contract = preview_contract_loader(paths.host_root)
+            frontend_health_path = contract.frontend.healthcheck_path if contract else "/"
+            backend_health_path = contract.backend.healthcheck_path if contract and contract.backend else "/health"
+
+            await log_step(f"waiting for frontend service path={frontend_health_path}")
+            with telemetry.span("preview.wait.frontend", category="preview"):
+                frontend_ready = await sandbox_service.wait_for_service(
+                    container_name=container_name,
+                    port=3000,
+                    path=frontend_health_path,
+                    timeout_seconds=60.0,
+                    poll_interval_seconds=1.0,
+                )
+            await log_step(f"frontend wait completed ready={frontend_ready}")
+            if not frontend_ready:
+                return False, ["frontend service did not become ready after smoke repair"]
+
+            if contract and contract.backend:
+                await log_step(f"waiting for backend service path={backend_health_path}")
+                with telemetry.span("preview.wait.backend", category="preview"):
+                    backend_ready = await sandbox_service.wait_for_service(
+                        container_name=container_name,
+                        port=8000,
+                        path=backend_health_path,
+                        timeout_seconds=60.0,
+                        poll_interval_seconds=1.0,
+                    )
+                await log_step(f"backend wait completed ready={backend_ready}")
+                if not backend_ready:
+                    return False, ["backend service did not become ready after smoke repair"]
+
+                with telemetry.span("preview.smoke", category="smoke"):
+                    smoke_runner = PreviewSmokeRunner(sandbox_service)
+                    ignored_smoke_paths = {backend_health_path} if backend_health_path else None
+                    contract_required_result = await smoke_runner.require_contract_if_needed(
+                        container_name, paths.host_root, ignored_paths=ignored_smoke_paths
+                    )
+                    if not contract_required_result.ok:
+                        return False, [
+                            f"{failure.name}: {failure.reason}"
+                            for failure in contract_required_result.failures
+                        ]
+                    smoke_result = await smoke_runner.run(container_name, paths.host_root)
+                if not smoke_result.ok:
+                    return False, [f"{failure.name}: {failure.reason}" for failure in smoke_result.failures]
+
+            return True, []
 
         try:
             sessions_service = workspace_runtime_sessions_service_cls(db)
@@ -764,11 +859,22 @@ async def run_engineer_session(
                             if not smoke_result.ok:
                                 reasons = [f"{failure.name}: {failure.reason}" for failure in smoke_result.failures]
                                 recorder.error("preview failed smoke_failed")
-                                recorder.set_status("failed")
                                 await traced_event_sink(
                                     {"type": "preview_failed", "reason": "smoke_failed", "failures": reasons}
                                 )
-                                return False
+                                repair_prompt = _build_smoke_repair_prompt("smoke_failed", reasons)
+                                repair_ok, repair_failures = await rerun_preview_after_smoke_repair(repair_prompt)
+                                if not repair_ok:
+                                    recorder.error("preview failed smoke_failed after repair")
+                                    recorder.set_status("failed")
+                                    await traced_event_sink(
+                                        {
+                                            "type": "preview_failed",
+                                            "reason": "smoke_failed",
+                                            "failures": repair_failures,
+                                        }
+                                    )
+                                    return False
 
                         with telemetry.span("preview.session.create", category="preview"):
                             session = await sessions_service.create(
