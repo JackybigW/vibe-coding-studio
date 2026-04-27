@@ -18,7 +18,10 @@ def _should_ignore_snapshot_path(relative_path: Path) -> bool:
     parts = relative_path.parts
     if any(part in IGNORED_PARTS for part in parts):
         return True
-    return len(parts) >= 2 and parts[0] == ".atoms" and parts[1] == "cache"
+    return any(
+        part == ".atoms" and index + 1 < len(parts) and parts[index + 1] == "cache"
+        for index, part in enumerate(parts)
+    )
 
 
 @dataclass(frozen=True)

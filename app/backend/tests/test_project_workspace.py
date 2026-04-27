@@ -25,6 +25,8 @@ def test_snapshot_files_ignores_runtime_directories(tmp_path):
     (host_root / ".git").mkdir()
     (host_root / ".atoms" / "cache" / "deps").mkdir(parents=True)
     (host_root / ".atoms").mkdir(exist_ok=True)
+    (host_root / "app" / "frontend" / ".atoms" / "cache" / "deps").mkdir(parents=True)
+    (host_root / "app" / "backend" / ".atoms" / "cache" / "deps").mkdir(parents=True)
 
     (host_root / "src" / "App.tsx").write_text("export default function App() {}", encoding="utf-8")
     (host_root / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin/python", encoding="utf-8")
@@ -36,6 +38,14 @@ def test_snapshot_files_ignores_runtime_directories(tmp_path):
     (host_root / ".git" / "config").write_text("[core]", encoding="utf-8")
     (host_root / ".atoms" / "cache" / "deps" / "frontend.json").write_text('{"hash":"abc"}', encoding="utf-8")
     (host_root / ".atoms" / "smoke.json").write_text('{"version":1,"checks":[]}', encoding="utf-8")
+    (host_root / "app" / "frontend" / ".atoms" / "cache" / "deps" / "frontend.json").write_text(
+        '{"hash":"frontend"}',
+        encoding="utf-8",
+    )
+    (host_root / "app" / "backend" / ".atoms" / "cache" / "deps" / "backend.json").write_text(
+        '{"hash":"backend"}',
+        encoding="utf-8",
+    )
 
     snapshot = service.snapshot_files(host_root)
 
