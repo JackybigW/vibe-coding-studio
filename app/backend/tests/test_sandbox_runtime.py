@@ -391,7 +391,21 @@ async def test_ensure_runtime_forwards_explicit_sandbox_proxy_env(monkeypatch, t
 
 
 @pytest.mark.asyncio
-async def test_exec_uses_install_timeout_for_dependency_installs(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "install_command",
+    [
+        "uv pip install -r requirements.txt",
+        "pip install -r requirements.txt",
+        "python -m pip install -r requirements.txt",
+        "python3 -m pip install -r requirements.txt",
+        "pnpm install",
+        "npm install",
+        "yarn install",
+    ],
+)
+async def test_exec_uses_install_timeout_for_dependency_installs(
+    monkeypatch, tmp_path, install_command
+):
     observed_timeout = None
 
     async def fake_wait_for(coro, timeout):
@@ -411,7 +425,7 @@ async def test_exec_uses_install_timeout_for_dependency_installs(monkeypatch, tm
         install_timeout_seconds=600.0,
     )
 
-    await service.exec("atoms-user-1-42", "cd /workspace/app/backend && uv pip install -r requirements.txt")
+    await service.exec("atoms-user-1-42", f"cd /workspace/app/backend && {install_command}")
 
     assert observed_timeout == 600.0
 
