@@ -121,11 +121,16 @@ def _extract_terminate_summary(result: object) -> str:
     if terminate_index == -1:
         return ""
 
+    segment = result[terminate_index:]
+    next_observation_index = segment.find("\n\nObserved output of cmd `")
+    if next_observation_index != -1:
+        segment = segment[:next_observation_index]
+
     marker = "\nSummary:"
-    marker_index = result.find(marker, terminate_index)
+    marker_index = segment.find(marker)
     if marker_index == -1:
         return ""
-    return result[marker_index + len(marker):].strip()
+    return segment[marker_index + len(marker):].strip()
 
 
 async def _probe_backend_health(

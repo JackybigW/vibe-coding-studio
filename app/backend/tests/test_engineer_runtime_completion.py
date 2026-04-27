@@ -171,6 +171,17 @@ def test_extract_terminate_summary_uses_last_terminate_output():
     assert _extract_terminate_summary(None) == ""
 
 
+def test_extract_terminate_summary_ignores_later_tool_observation_summary():
+    result = (
+        "Step 1: Observed output of cmd `terminate` executed:\n"
+        "The interaction has been completed with status: success\n\n"
+        "Observed output of cmd `bash` executed:\n"
+        "Summary: wrong"
+    )
+
+    assert _extract_terminate_summary(result) == ""
+
+
 @pytest.mark.asyncio
 async def test_engineer_runtime_emits_summary_before_preview_failure(monkeypatch):
     events = []
