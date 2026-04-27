@@ -138,26 +138,27 @@ _HEREDOC_RE = re.compile(r"<<[-~]?(?:'[^']*'|\"[^\"]*\"|[A-Za-z_][A-Za-z0-9_]*)"
 _WORKSPACE_PATH_LITERAL_RE = re.compile(r"(/workspace(?:/[^\s'\"`;&|<>]+)+)")
 _RELATIVE_WORKSPACE_PATH_RE = re.compile(r"((?:app/(?:frontend|backend)|docs|\.atoms)(?:/[^\s'\"`;&|<>]+)+)")
 _BACKEND_UV_INSTALL_RE = re.compile(
-    r"^\s*cd\s+(/workspace/(?:app/)?backend)\s*&&\s*uv\s+pip\s+install\b(?:(?!&&)[^;|])*(?:-r|--requirements)\s+(?:requirements\.txt|/workspace/(?:app/)?backend/requirements\.txt)(?:(?!&&)[^;|])*$"
+    r"^\s*cd\s+(/workspace/(?:app/)?backend)\s*&&\s*uv\s+pip\s+install\b(?:[^&;|\n]|(?<=>)&)*(?:-r|--requirements)\s+(?:requirements\.txt|/workspace/(?:app/)?backend/requirements\.txt)(?:[^&;|\n]|(?<=>)&)*$"
 )
 _FRONTEND_PNPM_INSTALL_RE = re.compile(
-    r"^\s*cd\s+(/workspace/(?:app/)?frontend|/workspace)\s*&&\s*pnpm\s+install\b(?:(?!&&)[^;|])*$"
+    r"^\s*cd\s+(/workspace/(?:app/)?frontend|/workspace)\s*&&\s*pnpm\s+install\b[^&;|\n]*$"
 )
 _BACKEND_UV_VERIFY_RE = re.compile(
-    r"^\s*cd\s+(/workspace/(?:app/)?backend)\s*&&\s*uv\s+pip\s+install\b(?:(?!&&)[^;|])*(?:-r|--requirements)\s+(?:requirements\.txt|/workspace/(?:app/)?backend/requirements\.txt)(?:(?!&&)[^;|])*\s*&&\s*(\.venv/bin/python\s+-c\s+\"from main import app; print\('ok'\)\")\s*$"
+    r"^\s*cd\s+(/workspace/(?:app/)?backend)\s*&&\s*uv\s+pip\s+install\b(?:[^&;|\n]|(?<=>)&)*(?:-r|--requirements)\s+(?:requirements\.txt|/workspace/(?:app/)?backend/requirements\.txt)(?:[^&;|\n]|(?<=>)&)*\s*&&\s*(\.venv/bin/python\s+-c\s+\"from main import app; print\('ok'\)\")\s*$"
 )
 _BACKEND_GUARDED_UV_VERIFY_RE = re.compile(
     r"^\s*cd\s+(/workspace/(?:app/)?backend)\s*&&\s*\(\[\s+-x\s+\.venv/bin/python\s+\]\s*\|\|\s*uv\s+venv\s+\.venv\)\s*&&\s*uv\s+pip\s+install\s+--python\s+\.venv/bin/python\s+-r\s+requirements\.txt\s+-q\s+2>&1\s*&&\s*(\.venv/bin/python\s+-c\s+\"from main import app; print\('ok'\)\")\s*$"
 )
 
 
-def _rewrite_dependency_install_command(command: str) -> tuple[str, bool]:
+def _rewrite_dependency_install_command(command: str) -> tuple[str, bool, str | None]:
     guarded_backend_match = _BACKEND_GUARDED_UV_VERIFY_RE.match(command)
     if guarded_backend_match:
         backend_dir, verification_tail = guarded_backend_match.groups()
         return (
             f"/usr/local/bin/atoms-deps-cache backend install {backend_dir} && cd {backend_dir} && {verification_tail}",
             True,
+            backend_dir,
         )
 
     backend_verify_match = _BACKEND_UV_VERIFY_RE.match(command)
@@ -166,17 +167,20 @@ def _rewrite_dependency_install_command(command: str) -> tuple[str, bool]:
         return (
             f"/usr/local/bin/atoms-deps-cache backend install {backend_dir} && cd {backend_dir} && {verification_tail}",
             True,
+            backend_dir,
         )
 
     backend_match = _BACKEND_UV_INSTALL_RE.match(command)
     if backend_match:
-        return f"/usr/local/bin/atoms-deps-cache backend install {backend_match.group(1)}", True
+        backend_dir = backend_match.group(1)
+        return f"/usr/local/bin/atoms-deps-cache backend install {backend_dir}", True, backend_dir
 
     frontend_match = _FRONTEND_PNPM_INSTALL_RE.match(command)
     if frontend_match:
-        return f"/usr/local/bin/atoms-deps-cache frontend install {frontend_match.group(1)}", True
+        frontend_dir = frontend_match.group(1)
+        return f"/usr/local/bin/atoms-deps-cache frontend install {frontend_dir}", True, frontend_dir
 
-    return command, False
+    return command, False, None
 
 
 def _validate_bash_write_targets(command: str, approval_gate=None) -> None:
@@ -260,9 +264,11 @@ class ContainerBashSession:
         return len(self.executed_commands) > 0
 
     async def run(self, command: str) -> CLIResult:
-        rewritten_command, rewritten = _rewrite_dependency_install_command(command)
+        rewritten_command, rewritten, write_root = _rewrite_dependency_install_command(command)
         if not rewritten:
             _validate_bash_write_targets(command, approval_gate=self.approval_gate)
+        elif self.approval_gate is not None and write_root is not None:
+            self.approval_gate.check_write(write_root)
         self.executed_commands.append(command)
         returncode, stdout, stderr = await self.runtime_service.exec(
             self.container_name,
