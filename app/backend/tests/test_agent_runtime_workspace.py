@@ -499,6 +499,77 @@ async def test_container_bash_session_does_not_rewrite_chained_frontend_install(
 
 
 @pytest.mark.asyncio
+async def test_container_bash_session_does_not_rewrite_frontend_install_with_no_space_and_tail():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    session = ContainerBashSession(runtime_service, "container-1")
+
+    await session.run("cd /workspace/app/frontend && pnpm install --prefer-offline&&pnpm run build")
+
+    assert runtime_service.calls == [
+        (
+            "container-1",
+            "cd /workspace && cd /workspace/app/frontend && pnpm install --prefer-offline&&pnpm run build",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_container_bash_session_does_not_rewrite_frontend_install_with_no_space_semicolon_tail():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    session = ContainerBashSession(runtime_service, "container-1")
+
+    await session.run("cd /workspace/app/frontend && pnpm install --prefer-offline;pnpm run build")
+
+    assert runtime_service.calls == [
+        (
+            "container-1",
+            "cd /workspace && cd /workspace/app/frontend && pnpm install --prefer-offline;pnpm run build",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_container_bash_session_does_not_rewrite_backend_install_with_no_space_and_tail():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    session = ContainerBashSession(runtime_service, "container-1")
+
+    await session.run(
+        "cd /workspace/app/backend && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1&&pytest -q"
+    )
+
+    assert runtime_service.calls == [
+        (
+            "container-1",
+            "cd /workspace && cd /workspace/app/backend && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1&&pytest -q",
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_container_bash_session_rewrites_chained_backend_install_and_preserves_tail():
     class FakeRuntimeService:
         def __init__(self):
