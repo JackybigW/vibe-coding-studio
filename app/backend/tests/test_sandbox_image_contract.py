@@ -31,3 +31,10 @@ def test_sandbox_image_declares_runtime_cache_env() -> None:
 
     assert "UV_CACHE_DIR=/root/.cache/uv" in text
     assert "PNPM_STORE_DIR=/root/.local/share/pnpm/store" in text
+
+
+def test_sandbox_image_does_not_pin_runtime_python_index() -> None:
+    text = dockerfile_text()
+
+    assert "UV_INDEX_URL" not in text
+    assert "pypi.tuna.tsinghua.edu.cn" not in text

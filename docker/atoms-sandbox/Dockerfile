@@ -29,7 +29,6 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
 
 # Pre-install common backend packages into system Python so agents can
 # import them without a fresh download on every verification run.
-# (Build uses default pypi.org; the mirror ENV below applies at runtime only.)
 RUN uv pip install --system --break-system-packages \
     fastapi \
     "uvicorn[standard]" \
@@ -42,10 +41,7 @@ RUN uv pip install --system --break-system-packages \
     sqlalchemy \
     aiofiles
 
-# Use Tsinghua PyPI mirror at runtime so agent pip installs are fast from China.
-# This ENV is set AFTER the RUN above so the image build itself uses pypi.org.
-ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
-    UV_CACHE_DIR=/root/.cache/uv \
+ENV UV_CACHE_DIR=/root/.cache/uv \
     PNPM_STORE_DIR=/root/.local/share/pnpm/store
 
 COPY start-dev /usr/local/bin/start-dev

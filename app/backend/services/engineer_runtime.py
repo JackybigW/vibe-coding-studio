@@ -148,6 +148,19 @@ def _build_smoke_repair_prompt(reason_code: str, failures: list[str]) -> str:
     )
 
 
+def _is_backend_dependency_install_failure(error_output: str) -> bool:
+    lowered = error_output.lower()
+    return (
+        "atoms-deps-cache: backend" in lowered
+        and (
+            "failed to fetch" in lowered
+            or "request failed after" in lowered
+            or "operation timed out" in lowered
+            or "uv pip install" in lowered
+        )
+    )
+
+
 async def _probe_backend_health(
     sandbox_service: Any,
     container_name: str,
@@ -180,6 +193,13 @@ async def _probe_backend_health(
         error_output = (out + err).strip() or "(no output)"
     except Exception as exc:
         error_output = str(exc)
+
+    if _is_backend_dependency_install_failure(error_output):
+        return True, (
+            "Backend dependency install FAILED. This is a runtime dependency installation failure, "
+            "not a generated app code failure.\n"
+            f"Error output:\n```\n{error_output}\n```"
+        )
 
     return True, (
         f"Backend code check FAILED. The app could not be imported or is missing the {healthcheck_path} route.\n"
@@ -498,6 +518,19 @@ async def run_engineer_session(
 
             if not backend_error:
                 break
+
+            if "Backend dependency install FAILED" in backend_error:
+                await log_step("Completion gate: backend dependency install failed; stopping agent repair loop.")
+                recorder.error("completion gate failed dependency_install_failed")
+                recorder.set_status("failed")
+                await traced_event_sink(
+                    {
+                        "type": "preview_failed",
+                        "reason": "dependency_install_failed",
+                        "failures": [backend_error],
+                    }
+                )
+                return False
 
             pushback_msgs = []
             if backend_error:

@@ -343,6 +343,37 @@ async def test_backend_probe_rejects_ok_stdout_when_command_fails(tmp_path):
     assert "some output\nokboom" in error
 
 
+@pytest.mark.asyncio
+async def test_backend_probe_classifies_dependency_install_failure(tmp_path):
+    class Contract:
+        backend = SimpleNamespace(
+            command="cd /workspace/app/backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000",
+            healthcheck_path="/health",
+        )
+
+    class Sandbox:
+        async def exec(self, container_name, command):
+            return (
+                2,
+                "",
+                "atoms-deps-cache: backend miss hash=abc\n"
+                "error: Request failed after 3 retries in 45.1s\n"
+                "Caused by: Failed to fetch: `https://pypi.tuna.tsinghua.edu.cn/simple/fastapi/`",
+            )
+
+    has_backend, error = await _probe_backend_health(
+        Sandbox(),
+        "fake-container",
+        tmp_path,
+        lambda root: Contract(),
+    )
+
+    assert has_backend is True
+    assert error is not None
+    assert "Backend dependency install FAILED" in error
+    assert "not a generated app code failure" in error
+
+
 def test_build_backend_check_command_quotes_backend_dir():
     backend_dir = "/workspace/app/backend; echo pwned"
 
@@ -555,6 +586,84 @@ async def test_engineer_runtime_pushback_on_backend_probe_failure(monkeypatch, t
     assert len(system_messages) > 0
     assert "COMPLETION GATE" in system_messages[0]["content"]
     assert "Backend code check FAILED" in system_messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_engineer_runtime_stops_on_dependency_install_failure(monkeypatch):
+    events = []
+
+    async def fake_event_sink(event):
+        events.append(event)
+
+    agent = FakeAgent()
+
+    fake_files_service = MagicMock()
+    fake_files_service.get_list = AsyncMock(return_value={"items": []})
+    monkeypatch.setattr("services.project_files.Project_filesService", lambda db: fake_files_service)
+
+    fake_messages_service = MagicMock()
+    fake_messages_service.get_list = AsyncMock(return_value={"items": []})
+    monkeypatch.setattr("services.messages.MessagesService", lambda db: fake_messages_service)
+
+    class FakeGate:
+        approved_request_key = "req_123"
+
+        def check_write(self, path):
+            pass
+
+    monkeypatch.setattr("services.approval_gate.ApprovalGate", lambda *args, **kwargs: FakeGate())
+
+    class FakeBashSession:
+        def has_verification_run(self):
+            return True
+
+    monkeypatch.setattr("services.engineer_runtime.ContainerBashSession", lambda *args, **kwargs: FakeBashSession())
+
+    class FakeAgentCls:
+        @staticmethod
+        def build_for_workspace(*args, **kwargs):
+            return agent
+
+    class DependencyInstallFailureSandbox(FakeSandboxService):
+        async def exec(self, container_name, command):
+            return (
+                2,
+                "",
+                "atoms-deps-cache: backend miss hash=abc\n"
+                "error: Request failed after 3 retries in 45.1s\n"
+                "Caused by: Failed to fetch: `https://pypi.tuna.tsinghua.edu.cn/simple/fastapi/`",
+            )
+
+    class Contract:
+        backend = SimpleNamespace(
+            command="cd /workspace/app/backend && uv run uvicorn main:app --host 0.0.0.0 --port 8000",
+            healthcheck_path="/health",
+        )
+
+    result = await run_engineer_session(
+        db=FakeDB(),
+        user_id="user-1",
+        project_id=42,
+        prompt="build something",
+        model="fake-model",
+        event_sink=fake_event_sink,
+        workspace_service_factory=lambda: FakeWorkspaceService(),
+        sandbox_service_factory=lambda: DependencyInstallFailureSandbox(),
+        agent_cls=FakeAgentCls,
+        llm_builder=lambda model: None,
+        workspace_runtime_sessions_service_cls=lambda db: MagicMock(),
+        preview_session_fields_factory=lambda: {"preview_session_key": "123"},
+        preview_url_builder=lambda key: {"preview_frontend_url": "http://front", "preview_backend_url": "http://back"},
+        preview_contract_loader=lambda p: Contract(),
+    )
+
+    assert result is False
+    assert agent.run_calls == 1
+    assert any(
+        event.get("type") == "preview_failed"
+        and event.get("reason") == "dependency_install_failed"
+        for event in events
+    )
 
 
 @pytest.mark.asyncio
