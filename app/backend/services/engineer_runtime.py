@@ -112,6 +112,17 @@ for module_name in sorted(module_names):
     )
 
 
+def _extract_terminate_summary(result: object) -> str:
+    if not isinstance(result, str):
+        return ""
+
+    marker = "\nSummary:"
+    marker_index = result.find(marker)
+    if marker_index == -1:
+        return ""
+    return result[marker_index + len(marker):].strip()
+
+
 async def _probe_backend_health(
     sandbox_service: Any,
     container_name: str,
@@ -745,6 +756,9 @@ async def run_engineer_session(
 
         recorder.set_status("completed")
         await log_step("run completed")
+        final_summary = _extract_terminate_summary(result)
+        if final_summary:
+            await traced_event_sink({"type": "assistant", "agent": agent.name, "content": final_summary})
         await traced_event_sink(
             {
                 "type": "done",
