@@ -488,9 +488,9 @@ def test_engineer_prompt_uses_venv_python_for_backend_install(monkeypatch):
 
     assert response.status_code == 200
     prompt_value = captured_prompt["value"]
-    assert "uv venv .venv" in prompt_value
-    assert "uv pip install --python .venv/bin/python -r requirements.txt" in prompt_value
+    assert "/usr/local/bin/atoms-deps-cache backend install /workspace/app/backend" in prompt_value
     assert '.venv/bin/python -c "from main import app; print(\'ok\')"' in prompt_value
+    assert "uv pip install --python .venv/bin/python -r requirements.txt" not in prompt_value
     assert "uv pip install -r requirements.txt -q 2>&1 && uv run python" not in prompt_value
 
 

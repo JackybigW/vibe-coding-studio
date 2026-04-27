@@ -100,6 +100,29 @@ class RuntimeTelemetryRecorder:
             }
         )
 
+    def record_span(
+        self,
+        name: str,
+        *,
+        category: TelemetryCategory,
+        duration_ms: float,
+        status: str = "ok",
+        attrs: dict[str, Any] | None = None,
+    ) -> None:
+        now = _utc_now_iso()
+        self._append(
+            {
+                "type": "span",
+                "name": name,
+                "category": category,
+                "status": status,
+                "started_at": now,
+                "ended_at": now,
+                "duration_ms": max(0.0, duration_ms),
+                "attrs": _safe_json_value(attrs or {}),
+            }
+        )
+
     def summary(self) -> dict[str, Any]:
         durations_ms: dict[str, float] = {}
         events: dict[str, int] = {}

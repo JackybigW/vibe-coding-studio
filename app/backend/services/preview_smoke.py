@@ -180,6 +180,18 @@ def smoke_contract_required(openapi: Any, *, ignored_paths: set[str] | None = No
     return False
 
 
+def _missing_contract_result(reason: str) -> SmokeResult:
+    return SmokeResult(
+        ok=False,
+        failures=[
+            SmokeFailure(
+                name=".atoms/smoke.json",
+                reason=reason,
+            )
+        ],
+    )
+
+
 class PreviewSmokeRunner:
     def __init__(self, sandbox_service: Any):
         self.sandbox_service = sandbox_service
@@ -205,24 +217,21 @@ class PreviewSmokeRunner:
             path="/openapi.json",
         )
         if status != 200:
-            return SmokeResult(ok=True, failures=[])
+            return _missing_contract_result(
+                f"backend OpenAPI returned HTTP {status}; smoke contract is missing"
+            )
         try:
             openapi = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            return SmokeResult(ok=True, failures=[])
+            return _missing_contract_result("backend OpenAPI could not be parsed; smoke contract is missing")
+
+        if not isinstance(openapi, dict) or not isinstance(openapi.get("paths"), dict):
+            return _missing_contract_result("backend OpenAPI has invalid shape; smoke contract is missing")
 
         if not smoke_contract_required(openapi, ignored_paths=ignored_paths):
             return SmokeResult(ok=True, failures=[])
 
-        return SmokeResult(
-            ok=False,
-            failures=[
-                SmokeFailure(
-                    name=".atoms/smoke.json",
-                    reason="backend exposes API routes but smoke contract is missing",
-                )
-            ],
-        )
+        return _missing_contract_result("backend exposes API routes but smoke contract is missing")
 
     async def run(self, container_name: str, host_root: Path) -> SmokeResult:
         contract = load_smoke_contract(host_root)

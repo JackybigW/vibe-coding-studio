@@ -350,7 +350,8 @@ def test_build_backend_check_command_quotes_backend_dir():
 
     assert command.startswith(f"cd {shlex.quote(backend_dir)} && ")
     assert f"cd {backend_dir} && " not in command
-    assert "uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1)" in command
+    assert f"/usr/local/bin/atoms-deps-cache backend install {shlex.quote(backend_dir)}" in command
+    assert "uv pip install --python .venv/bin/python -r requirements.txt" not in command
     assert "|| true" not in command
 
 
@@ -375,25 +376,29 @@ def lazily_import_dependency():
     )
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    fake_uv = bin_dir / "uv"
-    fake_uv.write_text(
+    fake_cache = bin_dir / "atoms-deps-cache"
+    fake_cache.write_text(
         f"""#!/usr/bin/env bash
 set -euo pipefail
-if [ "$1" = "venv" ] && [ "$2" = ".venv" ]; then
+if [ "$1" = "backend" ] && [ "$2" = "install" ]; then
+  cd "$3"
   mkdir -p .venv/bin
   ln -sf {shlex.quote(sys.executable)} .venv/bin/python
   exit 0
 fi
-echo "unexpected uv args: $*" >&2
+echo "unexpected atoms-deps-cache args: $*" >&2
 exit 1
 """,
         encoding="utf-8",
     )
-    fake_uv.chmod(0o755)
+    fake_cache.chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    command = _build_backend_check_command(str(backend_dir), "/health").replace(
+        "/usr/local/bin/atoms-deps-cache", str(fake_cache)
+    )
 
     result = subprocess.run(
-        ["bash", "-lc", _build_backend_check_command(str(backend_dir), "/health")],
+        ["bash", "-lc", command],
         env=env,
         text=True,
         capture_output=True,
@@ -422,28 +427,32 @@ app = App()
     )
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    fake_uv = bin_dir / "uv"
-    fake_uv.write_text(
+    fake_cache = bin_dir / "atoms-deps-cache"
+    fake_cache.write_text(
         f"""#!/usr/bin/env bash
 set -euo pipefail
-if [ "$1" = "venv" ] && [ "$2" = ".venv" ]; then
+if [ "$1" = "backend" ] && [ "$2" = "install" ]; then
+  cd "$3"
   mkdir -p .venv/bin
   ln -sf {shlex.quote(sys.executable)} .venv/bin/python
   exit 0
 fi
-echo "unexpected uv args: $*" >&2
+echo "unexpected atoms-deps-cache args: $*" >&2
 exit 1
 """,
         encoding="utf-8",
     )
-    fake_uv.chmod(0o755)
+    fake_cache.chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    command = _build_backend_check_command(str(backend_dir), f"/health$(touch {marker})").replace(
+        "/usr/local/bin/atoms-deps-cache", str(fake_cache)
+    )
 
     result = subprocess.run(
         [
             "bash",
             "-lc",
-            _build_backend_check_command(str(backend_dir), f"/health$(touch {marker})"),
+            command,
         ],
         env=env,
         text=True,

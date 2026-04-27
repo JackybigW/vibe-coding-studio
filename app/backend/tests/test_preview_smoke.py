@@ -167,7 +167,22 @@ async def test_preview_smoke_runner_reports_missing_contract_when_api_routes_exi
 
 
 @pytest.mark.asyncio
-async def test_preview_smoke_runner_ignores_invalid_utf8_openapi_response(tmp_path):
+async def test_preview_smoke_runner_requires_contract_on_openapi_non_200_response(tmp_path):
+    class Sandbox:
+        async def smoke_request(self, container_name, *, service, method, path, headers=None, json_body=None):
+            assert path == "/openapi.json"
+            return 500, {"content-type": "application/json"}, b"error"
+
+    result = await PreviewSmokeRunner(Sandbox()).require_contract_if_needed("container-1", tmp_path)
+
+    assert result.ok is False
+    assert result.failures == [
+        SmokeFailure(name=".atoms/smoke.json", reason="backend OpenAPI returned HTTP 500; smoke contract is missing")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_preview_smoke_runner_requires_contract_on_invalid_utf8_openapi_response(tmp_path):
     class Sandbox:
         async def smoke_request(self, container_name, *, service, method, path, headers=None, json_body=None):
             assert path == "/openapi.json"
@@ -175,12 +190,14 @@ async def test_preview_smoke_runner_ignores_invalid_utf8_openapi_response(tmp_pa
 
     result = await PreviewSmokeRunner(Sandbox()).require_contract_if_needed("container-1", tmp_path)
 
-    assert result.ok is True
-    assert result.failures == []
+    assert result.ok is False
+    assert result.failures == [
+        SmokeFailure(name=".atoms/smoke.json", reason="backend OpenAPI could not be parsed; smoke contract is missing")
+    ]
 
 
 @pytest.mark.asyncio
-async def test_preview_smoke_runner_ignores_invalid_json_openapi_response(tmp_path):
+async def test_preview_smoke_runner_requires_contract_on_invalid_json_openapi_response(tmp_path):
     class Sandbox:
         async def smoke_request(self, container_name, *, service, method, path, headers=None, json_body=None):
             assert path == "/openapi.json"
@@ -188,13 +205,15 @@ async def test_preview_smoke_runner_ignores_invalid_json_openapi_response(tmp_pa
 
     result = await PreviewSmokeRunner(Sandbox()).require_contract_if_needed("container-1", tmp_path)
 
-    assert result.ok is True
-    assert result.failures == []
+    assert result.ok is False
+    assert result.failures == [
+        SmokeFailure(name=".atoms/smoke.json", reason="backend OpenAPI could not be parsed; smoke contract is missing")
+    ]
 
 
 @pytest.mark.parametrize("body", [b"[]", b'{"paths": []}'])
 @pytest.mark.asyncio
-async def test_preview_smoke_runner_ignores_wrong_shape_openapi_response(tmp_path, body):
+async def test_preview_smoke_runner_requires_contract_on_wrong_shape_openapi_response(tmp_path, body):
     class Sandbox:
         async def smoke_request(self, container_name, *, service, method, path, headers=None, json_body=None):
             assert path == "/openapi.json"
@@ -202,8 +221,10 @@ async def test_preview_smoke_runner_ignores_wrong_shape_openapi_response(tmp_pat
 
     result = await PreviewSmokeRunner(Sandbox()).require_contract_if_needed("container-1", tmp_path)
 
-    assert result.ok is True
-    assert result.failures == []
+    assert result.ok is False
+    assert result.failures == [
+        SmokeFailure(name=".atoms/smoke.json", reason="backend OpenAPI has invalid shape; smoke contract is missing")
+    ]
 
 
 def test_load_smoke_contract_rejects_non_list_checks(tmp_path):

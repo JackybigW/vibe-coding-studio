@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import os
 import re
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -149,6 +150,9 @@ _BACKEND_UV_VERIFY_RE = re.compile(
 _BACKEND_GUARDED_UV_VERIFY_RE = re.compile(
     r"^\s*cd\s+(/workspace/(?:app/)?backend)\s*&&\s*\(\[\s+-x\s+\.venv/bin/python\s+\]\s*\|\|\s*uv\s+venv\s+\.venv\)\s*&&\s*uv\s+pip\s+install\s+--python\s+\.venv/bin/python\s+-r\s+requirements\.txt\s+-q\s+2>&1\s*&&\s*(\.venv/bin/python\s+-c\s+\"from main import app; print\('ok'\)\")\s*$"
 )
+_DEPENDENCY_CACHE_RESULT_RE = re.compile(
+    r"atoms-deps-cache:\s+(frontend|backend)\s+(hit|miss)\s+hash=([^\s]+)"
+)
 
 
 def _rewrite_dependency_install_command(command: str) -> tuple[str, bool, str | None]:
@@ -181,6 +185,23 @@ def _rewrite_dependency_install_command(command: str) -> tuple[str, bool, str | 
         return f"/usr/local/bin/atoms-deps-cache frontend install {frontend_dir}", True, frontend_dir
 
     return command, False, None
+
+
+def _dependency_cache_events(text: str) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    for match in _DEPENDENCY_CACHE_RESULT_RE.finditer(text):
+        scope, result, cache_hash = match.groups()
+        events.append(
+            {
+                "name": f"dependency_cache.{result}",
+                "category": "dependency",
+                "attrs": {
+                    "scope": scope,
+                    "hash": cache_hash,
+                },
+            }
+        )
+    return events
 
 
 def _validate_bash_write_targets(command: str, approval_gate=None) -> None:
@@ -270,16 +291,21 @@ class ContainerBashSession:
         elif self.approval_gate is not None and write_root is not None:
             self.approval_gate.check_write(write_root)
         self.executed_commands.append(command)
+        started = time.perf_counter()
         returncode, stdout, stderr = await self.runtime_service.exec(
             self.container_name,
             f"cd /workspace && {rewritten_command}",
         )
+        duration_ms = max(0.0, (time.perf_counter() - started) * 1000)
         if self.telemetry_sink is not None:
             try:
                 telemetry_result = self.telemetry_sink(
                     {
+                        "type": "span",
                         "name": "bash.command",
                         "category": "bash",
+                        "status": "ok" if returncode == 0 else "error",
+                        "duration_ms": duration_ms,
                         "attrs": {
                             "command": command,
                             "rewritten": rewritten,
@@ -289,6 +315,10 @@ class ContainerBashSession:
                 )
                 if inspect.isawaitable(telemetry_result):
                     await telemetry_result
+                for event in _dependency_cache_events(f"{stdout}\n{stderr}"):
+                    cache_result = self.telemetry_sink(event)
+                    if inspect.isawaitable(cache_result):
+                        await cache_result
             except Exception:
                 pass
         return CLIResult(output=stdout.rstrip(), error=stderr.rstrip(), system=str(returncode))

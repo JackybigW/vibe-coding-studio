@@ -46,15 +46,17 @@ def test_runtime_telemetry_summary_groups_duration_by_category(tmp_path):
         pass
     with recorder.span("preview.wait.frontend", category="preview"):
         pass
+    recorder.record_span("bash.command", category="bash", duration_ms=12.5, attrs={"command": "pwd"})
     recorder.event("dependency_cache.hit", category="dependency", attrs={"scope": "frontend"})
 
     summary = recorder.summary()
 
     assert summary["run_id"] == "run-1"
-    assert summary["span_count"] == 2
+    assert summary["span_count"] == 3
     assert summary["event_count"] == 1
     assert summary["durations_ms"]["agent"] >= 0
     assert summary["durations_ms"]["preview"] >= 0
+    assert summary["durations_ms"]["bash"] == 12.5
     assert summary["events"]["dependency_cache.hit"] == 1
 
 

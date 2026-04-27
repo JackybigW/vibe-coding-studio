@@ -758,17 +758,17 @@ async def test_container_bash_session_emits_command_telemetry():
 
     await session.run("pwd")
 
-    assert events == [
-        {
-            "name": "bash.command",
-            "category": "bash",
-            "attrs": {
-                "command": "pwd",
-                "rewritten": False,
-                "returncode": 0,
-            },
-        }
-    ]
+    assert len(events) == 1
+    assert events[0]["type"] == "span"
+    assert events[0]["name"] == "bash.command"
+    assert events[0]["category"] == "bash"
+    assert events[0]["status"] == "ok"
+    assert events[0]["duration_ms"] >= 0
+    assert events[0]["attrs"] == {
+        "command": "pwd",
+        "rewritten": False,
+        "returncode": 0,
+    }
 
 
 @pytest.mark.asyncio
@@ -790,17 +790,46 @@ async def test_container_bash_session_awaits_async_command_telemetry():
 
     await session.run("pwd")
 
-    assert events == [
-        {
-            "name": "bash.command",
-            "category": "bash",
-            "attrs": {
-                "command": "pwd",
-                "rewritten": False,
-                "returncode": 0,
-            },
-        }
-    ]
+    assert len(events) == 1
+    assert events[0]["type"] == "span"
+    assert events[0]["name"] == "bash.command"
+    assert events[0]["category"] == "bash"
+    assert events[0]["status"] == "ok"
+    assert events[0]["duration_ms"] >= 0
+    assert events[0]["attrs"] == {
+        "command": "pwd",
+        "rewritten": False,
+        "returncode": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_container_bash_session_emits_dependency_cache_telemetry():
+    events = []
+
+    class FakeRuntimeService:
+        async def exec(self, container_name, command):
+            return 0, "ok", "atoms-deps-cache: backend hit hash=abc123\n"
+
+    session = ContainerBashSession(
+        FakeRuntimeService(),
+        "container-1",
+        telemetry_sink=lambda event: events.append(event),
+    )
+
+    await session.run(
+        "cd /workspace/app/backend && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1"
+    )
+
+    assert events[0]["name"] == "bash.command"
+    assert events[1] == {
+        "name": "dependency_cache.hit",
+        "category": "dependency",
+        "attrs": {
+            "scope": "backend",
+            "hash": "abc123",
+        },
+    }
 
 
 @pytest.mark.asyncio

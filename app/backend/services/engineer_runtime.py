@@ -104,9 +104,7 @@ for module_name in sorted(module_names):
     )
     return (
         f"cd {shlex.quote(backend_dir)} && "
-        "([ -x .venv/bin/python ] || uv venv .venv) && "
-        "([ ! -f requirements.txt ] || "
-        "uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1) && "
+        f"/usr/local/bin/atoms-deps-cache backend install {shlex.quote(backend_dir)} && "
         ".venv/bin/python - <<'PY' && "
         f".venv/bin/python -c {shlex.quote(route_check)} 2>&1\n"
         f"{import_scan.strip()}\n"
@@ -318,6 +316,15 @@ async def run_engineer_session(
             approval_gate=gate,
         )
         def bash_telemetry_sink(event: dict[str, object]) -> None:
+            if event.get("type") == "span":
+                telemetry.record_span(
+                    str(event["name"]),
+                    category=str(event["category"]),
+                    status=str(event.get("status", "ok")),
+                    duration_ms=float(event.get("duration_ms", 0.0)),
+                    attrs=dict(event.get("attrs") or {}),
+                )
+                return
             telemetry.event(str(event["name"]), category=str(event["category"]), attrs=dict(event.get("attrs") or {}))
 
         bash_session = ContainerBashSession(
@@ -407,8 +414,8 @@ async def run_engineer_session(
             "Do NOT create a .env file that sets VITE_ATOMS_PREVIEW_BACKEND_BASE — "
             "this variable is injected by start-preview at runtime and must not be hardcoded.\n"
             "For backend verification use ONLY the static import test — never start uvicorn manually:\n"
-            "  cd /workspace/app/backend && ([ -x .venv/bin/python ] || uv venv .venv) && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1 && .venv/bin/python -c \"from main import app; print('ok')\"\n"
-            "Always install requirements with `uv pip install --python .venv/bin/python`; do not use `.venv/bin/pip`, `pip3 install`, or `python3 -m pip install`. "
+            "  cd /workspace/app/backend && /usr/local/bin/atoms-deps-cache backend install /workspace/app/backend && .venv/bin/python -c \"from main import app; print('ok')\"\n"
+            "Always install requirements with `/usr/local/bin/atoms-deps-cache backend install /workspace/app/backend`; do not use `.venv/bin/pip`, `pip3 install`, or `python3 -m pip install`. "
             "This confirms imports and app construction without starting a process.\n"
             "If you ever start a background process for any reason, do NOT kill it before calling terminate.\n\n"
             "## Orchestration Workflow\n\n"
@@ -422,9 +429,9 @@ async def run_engineer_session(
             "For frontend apps, create infrastructure files FIRST (package.json, vite.config.ts, index.html, main.tsx, tsconfig.json) "
             "before writing any component files. This ensures pnpm install and builds work from the start.\\n"
             "4. Verify before finishing — use ONLY these commands, do NOT start background servers:\\n"
-            "   Backend: cd /workspace/app/backend && ([ -x .venv/bin/python ] || uv venv .venv) && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1 && .venv/bin/python -c \"from main import app; print('ok')\"\\n"
+            "   Backend: cd /workspace/app/backend && /usr/local/bin/atoms-deps-cache backend install /workspace/app/backend && .venv/bin/python -c \"from main import app; print('ok')\"\\n"
             "   Frontend: cd /workspace/app/frontend && pnpm run build 2>&1 | tail -5\\n"
-            "   Always install requirements with `uv pip install --python .venv/bin/python`; do not use `.venv/bin/pip`, `pip3 install`, or `python3 -m pip install`.\\n"
+            "   Always install requirements with `/usr/local/bin/atoms-deps-cache backend install /workspace/app/backend`; do not use `.venv/bin/pip`, `pip3 install`, or `python3 -m pip install`.\\n"
             "   A completion gate re-runs the backend import check after you terminate; if it fails you will be asked to fix it.\\n"
             "5. After verification has passed, you MUST send one final message to the user "
             "that briefly summarizes: what was built, which files were created or modified, and how to use the app. "
@@ -483,7 +490,7 @@ async def run_engineer_session(
             if has_backend and not verification_ok:
                 pushback_msgs.append(
                     "- No verification command run. For backend run: "
-                    "cd /workspace/app/backend && ([ -x .venv/bin/python ] || uv venv .venv) && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1 && .venv/bin/python -c \"from main import app; print('ok')\". "
+                    "cd /workspace/app/backend && /usr/local/bin/atoms-deps-cache backend install /workspace/app/backend && .venv/bin/python -c \"from main import app; print('ok')\". "
                     "For frontend run: pnpm run build."
                 )
 
