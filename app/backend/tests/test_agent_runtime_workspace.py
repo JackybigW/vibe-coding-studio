@@ -413,6 +413,78 @@ async def test_container_bash_session_allows_read_only_workspace_commands():
 
 
 @pytest.mark.asyncio
+async def test_container_bash_session_rewrites_backend_uv_install_to_cache():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    session = ContainerBashSession(runtime_service, "container-1")
+
+    result = await session.run(
+        "cd /workspace/app/backend && uv pip install --python .venv/bin/python -r requirements.txt -q 2>&1"
+    )
+
+    assert runtime_service.calls == [
+        ("container-1", "cd /workspace && /usr/local/bin/atoms-deps-cache backend install /workspace/app/backend")
+    ]
+    assert result.output == "ok"
+
+
+@pytest.mark.asyncio
+async def test_container_bash_session_rewrites_frontend_pnpm_install_to_cache():
+    class FakeRuntimeService:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        async def exec(self, container_name, command):
+            self.calls.append((container_name, command))
+            return 0, "ok", ""
+
+    runtime_service = FakeRuntimeService()
+    session = ContainerBashSession(runtime_service, "container-1")
+
+    await session.run("cd /workspace/app/frontend && pnpm install --prefer-offline")
+
+    assert runtime_service.calls == [
+        ("container-1", "cd /workspace && /usr/local/bin/atoms-deps-cache frontend install /workspace/app/frontend")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_container_bash_session_emits_command_telemetry():
+    events = []
+
+    class FakeRuntimeService:
+        async def exec(self, container_name, command):
+            return 0, "ok", ""
+
+    session = ContainerBashSession(
+        FakeRuntimeService(),
+        "container-1",
+        telemetry_sink=lambda event: events.append(event),
+    )
+
+    await session.run("pwd")
+
+    assert events == [
+        {
+            "name": "bash.command",
+            "category": "bash",
+            "attrs": {
+                "command": "pwd",
+                "rewritten": False,
+                "returncode": 0,
+            },
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_container_bash_session_allows_read_only_commands_after_plan_before_todo():
     class FakeRuntimeService:
         def __init__(self):

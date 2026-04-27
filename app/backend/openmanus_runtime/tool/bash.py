@@ -136,6 +136,24 @@ _HIGHRISK_INLINE_RE = re.compile(r"\b(?:sh|bash|python3?|perl|ruby|node)\s+-[a-z
 _HEREDOC_RE = re.compile(r"<<[-~]?(?:'[^']*'|\"[^\"]*\"|[A-Za-z_][A-Za-z0-9_]*)")
 _WORKSPACE_PATH_LITERAL_RE = re.compile(r"(/workspace(?:/[^\s'\"`;&|<>]+)+)")
 _RELATIVE_WORKSPACE_PATH_RE = re.compile(r"((?:app/(?:frontend|backend)|docs|\.atoms)(?:/[^\s'\"`;&|<>]+)+)")
+_BACKEND_UV_INSTALL_RE = re.compile(
+    r"^\s*cd\s+(/workspace/(?:app/)?backend)\s*&&\s*uv\s+pip\s+install\b.*(?:-r|--requirements)\s+(?:requirements\.txt|/workspace/(?:app/)?backend/requirements\.txt).*$"
+)
+_FRONTEND_PNPM_INSTALL_RE = re.compile(
+    r"^\s*cd\s+(/workspace/(?:app/)?frontend|/workspace)\s*&&\s*pnpm\s+install\b.*$"
+)
+
+
+def _rewrite_dependency_install_command(command: str) -> tuple[str, bool]:
+    backend_match = _BACKEND_UV_INSTALL_RE.match(command)
+    if backend_match:
+        return f"/usr/local/bin/atoms-deps-cache backend install {backend_match.group(1)}", True
+
+    frontend_match = _FRONTEND_PNPM_INSTALL_RE.match(command)
+    if frontend_match:
+        return f"/usr/local/bin/atoms-deps-cache frontend install {frontend_match.group(1)}", True
+
+    return command, False
 
 
 def _validate_bash_write_targets(command: str, approval_gate=None) -> None:
@@ -207,10 +225,11 @@ class Bash(BaseTool):
 class ContainerBashSession:
     """A bash session that delegates command execution to a running Docker container."""
 
-    def __init__(self, runtime_service, container_name: str, approval_gate=None):
+    def __init__(self, runtime_service, container_name: str, approval_gate=None, telemetry_sink=None):
         self.runtime_service = runtime_service
         self.container_name = container_name
         self.approval_gate = approval_gate
+        self.telemetry_sink = telemetry_sink
         self.executed_commands: list[str] = []
 
     def has_verification_run(self) -> bool:
@@ -220,10 +239,23 @@ class ContainerBashSession:
     async def run(self, command: str) -> CLIResult:
         _validate_bash_write_targets(command, approval_gate=self.approval_gate)
         self.executed_commands.append(command)
+        rewritten_command, rewritten = _rewrite_dependency_install_command(command)
         returncode, stdout, stderr = await self.runtime_service.exec(
             self.container_name,
-            f"cd /workspace && {command}",
+            f"cd /workspace && {rewritten_command}",
         )
+        if self.telemetry_sink is not None:
+            self.telemetry_sink(
+                {
+                    "name": "bash.command",
+                    "category": "bash",
+                    "attrs": {
+                        "command": command,
+                        "rewritten": rewritten,
+                        "returncode": returncode,
+                    },
+                }
+            )
         return CLIResult(output=stdout.rstrip(), error=stderr.rstrip(), system=str(returncode))
 
 
@@ -233,9 +265,14 @@ class ContainerBash(Bash):
     _container_session: Optional[ContainerBashSession] = None
 
     @classmethod
-    def with_session(cls, runtime_service, container_name: str, approval_gate=None) -> "ContainerBash":
+    def with_session(cls, runtime_service, container_name: str, approval_gate=None, telemetry_sink=None) -> "ContainerBash":
         tool = cls()
-        tool._container_session = ContainerBashSession(runtime_service, container_name, approval_gate=approval_gate)
+        tool._container_session = ContainerBashSession(
+            runtime_service,
+            container_name,
+            approval_gate=approval_gate,
+            telemetry_sink=telemetry_sink,
+        )
         return tool
 
     @classmethod
