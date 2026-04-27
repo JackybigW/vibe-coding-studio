@@ -62,7 +62,10 @@ def load_smoke_contract(host_root: Path) -> SmokeContract | None:
     if version != 1:
         raise ValueError(f"Unsupported smoke contract version: {version!r}")
 
-    checks = payload.get("checks", [])
+    if "checks" not in payload:
+        raise ValueError("Smoke contract missing checks")
+
+    checks = payload["checks"]
     if not isinstance(checks, list):
         raise ValueError("Smoke contract checks must be a list")
 

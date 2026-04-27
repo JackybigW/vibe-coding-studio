@@ -150,6 +150,13 @@ def test_load_smoke_contract_rejects_non_list_checks(tmp_path):
         load_smoke_contract(tmp_path)
 
 
+def test_load_smoke_contract_rejects_missing_checks(tmp_path):
+    write_smoke_contract(tmp_path, {"version": 1})
+
+    with pytest.raises(ValueError, match="missing checks"):
+        load_smoke_contract(tmp_path)
+
+
 def test_load_smoke_contract_rejects_missing_version(tmp_path):
     write_smoke_contract(tmp_path, {"checks": []})
 
