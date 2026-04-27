@@ -3,6 +3,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -11,6 +12,12 @@ from typing import Awaitable, Callable, Optional
 
 RunCommand = Callable[..., Awaitable[tuple[int, str, str]]]
 logger = logging.getLogger(__name__)
+_SANDBOX_PROXY_ENV_MAP = {
+    "ATOMS_SANDBOX_HTTP_PROXY": ("HTTP_PROXY", "http_proxy"),
+    "ATOMS_SANDBOX_HTTPS_PROXY": ("HTTPS_PROXY", "https_proxy"),
+    "ATOMS_SANDBOX_ALL_PROXY": ("ALL_PROXY", "all_proxy"),
+    "ATOMS_SANDBOX_NO_PROXY": ("NO_PROXY", "no_proxy"),
+}
 
 
 class SandboxRuntimeService:
@@ -22,11 +29,17 @@ class SandboxRuntimeService:
         run_command: Optional[RunCommand] = None,
         command_timeout_seconds: float = 30.0,
         exec_timeout_seconds: float = 180.0,
+        install_timeout_seconds: Optional[float] = None,
     ):
         self.project_root = Path(project_root).resolve()
         self.run_command = run_command or self._run_command
         self.command_timeout_seconds = command_timeout_seconds
         self.exec_timeout_seconds = exec_timeout_seconds
+        self.install_timeout_seconds = (
+            install_timeout_seconds
+            if install_timeout_seconds is not None
+            else float(os.environ.get("ATOMS_SANDBOX_INSTALL_TIMEOUT_SECONDS", "600"))
+        )
 
     async def ensure_runtime(
         self,
@@ -106,7 +119,7 @@ class SandboxRuntimeService:
         resolved_host_root: Path,
         project_id: int,
     ) -> tuple[int, str, str]:
-        return await self._invoke(
+        command = [
             "docker",
             "run",
             "-d",
@@ -118,14 +131,44 @@ class SandboxRuntimeService:
             "/workspace",
             "-e",
             f"ATOMS_PROJECT_ID={project_id}",
-            "-p",
-            "0:3000",
-            "-p",
-            "0:8000",
-            self.SANDBOX_IMAGE,
-            "sleep",
-            "infinity",
+        ]
+        command.extend(self._sandbox_env_args())
+        command.extend(
+            [
+                "-p",
+                "0:3000",
+                "-p",
+                "0:8000",
+                self.SANDBOX_IMAGE,
+                "sleep",
+                "infinity",
+            ]
         )
+        return await self._invoke(*command)
+
+    def _sandbox_env_args(self) -> list[str]:
+        args: list[str] = []
+        for source_key, target_keys in _SANDBOX_PROXY_ENV_MAP.items():
+            value = os.environ.get(source_key)
+            if not value:
+                continue
+            for target_key in target_keys:
+                args.extend(["-e", f"{target_key}={value}"])
+        return args
+
+    def _exec_timeout_for_command(self, command: str) -> float:
+        install_patterns = (
+            "uv pip install",
+            "pip install",
+            "python -m pip install",
+            "python3 -m pip install",
+            "pnpm install",
+            "npm install",
+            "yarn install",
+        )
+        if any(pattern in command for pattern in install_patterns):
+            return self.install_timeout_seconds
+        return self.exec_timeout_seconds
 
     async def _matches_expected_runtime(
         self,
@@ -158,14 +201,15 @@ class SandboxRuntimeService:
         for key, value in (env or {}).items():
             docker_command.extend(["-e", f"{key}={value}"])
         docker_command.extend([container_name, "/bin/bash", "-lc", command])
+        timeout_seconds = self._exec_timeout_for_command(command)
         try:
             return await asyncio.wait_for(
                 self.run_command(*docker_command),
-                timeout=self.exec_timeout_seconds,
+                timeout=timeout_seconds,
             )
         except TimeoutError as exc:
             raise RuntimeError(
-                f"command timed out after {self.exec_timeout_seconds}s: {' '.join(docker_command)}"
+                f"command timed out after {timeout_seconds}s: {' '.join(docker_command)}"
             ) from exc
 
     async def start_preview_services(

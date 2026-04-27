@@ -357,6 +357,92 @@ async def test_ensure_runtime_injects_project_id_env_var(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_ensure_runtime_forwards_explicit_sandbox_proxy_env(monkeypatch, tmp_path):
+    commands = []
+    workspace_root = tmp_path / "user-1" / "7"
+    workspace_root.mkdir(parents=True)
+
+    monkeypatch.setenv("ATOMS_SANDBOX_HTTP_PROXY", "http://172.17.0.1:7890")
+    monkeypatch.setenv("ATOMS_SANDBOX_HTTPS_PROXY", "http://172.17.0.1:7890")
+    monkeypatch.setenv("ATOMS_SANDBOX_ALL_PROXY", "socks5://172.17.0.1:7890")
+    monkeypatch.setenv("ATOMS_SANDBOX_NO_PROXY", "localhost,127.0.0.1,::1,0.0.0.0")
+
+    async def fake_run(*args):
+        commands.append(args)
+        return 0, "container-id-123\n", ""
+
+    service = SandboxRuntimeService(project_root=tmp_path, run_command=fake_run)
+
+    await service.ensure_runtime(
+        user_id="user-1",
+        project_id=7,
+        host_root=workspace_root,
+    )
+
+    run_command = commands[0]
+    assert "HTTP_PROXY=http://172.17.0.1:7890" in run_command
+    assert "http_proxy=http://172.17.0.1:7890" in run_command
+    assert "HTTPS_PROXY=http://172.17.0.1:7890" in run_command
+    assert "https_proxy=http://172.17.0.1:7890" in run_command
+    assert "ALL_PROXY=socks5://172.17.0.1:7890" in run_command
+    assert "all_proxy=socks5://172.17.0.1:7890" in run_command
+    assert "NO_PROXY=localhost,127.0.0.1,::1,0.0.0.0" in run_command
+    assert "no_proxy=localhost,127.0.0.1,::1,0.0.0.0" in run_command
+
+
+@pytest.mark.asyncio
+async def test_exec_uses_install_timeout_for_dependency_installs(monkeypatch, tmp_path):
+    observed_timeout = None
+
+    async def fake_wait_for(coro, timeout):
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        return await coro
+
+    async def fake_run(*args):
+        return 0, "ok", ""
+
+    monkeypatch.setattr(sandbox_runtime_module.asyncio, "wait_for", fake_wait_for)
+
+    service = SandboxRuntimeService(
+        project_root=tmp_path,
+        run_command=fake_run,
+        exec_timeout_seconds=180.0,
+        install_timeout_seconds=600.0,
+    )
+
+    await service.exec("atoms-user-1-42", "cd /workspace/app/backend && uv pip install -r requirements.txt")
+
+    assert observed_timeout == 600.0
+
+
+@pytest.mark.asyncio
+async def test_exec_keeps_default_timeout_for_non_install_commands(monkeypatch, tmp_path):
+    observed_timeout = None
+
+    async def fake_wait_for(coro, timeout):
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        return await coro
+
+    async def fake_run(*args):
+        return 0, "ok", ""
+
+    monkeypatch.setattr(sandbox_runtime_module.asyncio, "wait_for", fake_wait_for)
+
+    service = SandboxRuntimeService(
+        project_root=tmp_path,
+        run_command=fake_run,
+        exec_timeout_seconds=180.0,
+        install_timeout_seconds=600.0,
+    )
+
+    await service.exec("atoms-user-1-42", "cd /workspace/app/backend && python -c 'print(1)'")
+
+    assert observed_timeout == 180.0
+
+
+@pytest.mark.asyncio
 async def test_ensure_runtime_raises_when_docker_run_fails(tmp_path):
     workspace_root = tmp_path / "user-123" / "42"
     workspace_root.mkdir(parents=True)
