@@ -13,8 +13,10 @@ from openmanus_runtime.tool.file_operators import ProjectFileOperator
 from services.agent_run_logs import AgentRunLogStore
 from services.messages import MessagesService
 from services.preview_contract import load_preview_contract
+from services.preview_smoke import PreviewSmokeRunner
 from services.preview_sessions import build_preview_urls, can_reuse_preview_session, new_preview_session_fields
 from services.project_files import Project_filesService
+from services.runtime_telemetry import RuntimeTelemetryRecorder
 from services.project_workspace import ProjectWorkspaceService
 from services.sandbox_runtime import SandboxRuntimeService
 from services.workspace_event_emitter import WorkspaceEventEmitter
@@ -197,11 +199,18 @@ async def run_engineer_session(
     prefix = _log_prefix(trace_id)
     workspace_service_factory = workspace_service_factory or _default_workspace_service_factory
     sandbox_service_factory = sandbox_service_factory or _default_sandbox_service_factory
+    recorder = None
+    telemetry = None
+    runtime_span = None
 
     try:
         logger.info("%s run_engineer_session started", prefix)
         run_logs = AgentRunLogStore(base_root=_WORKSPACES_ROOT)
         recorder = run_logs.start_run(user_id=user_id, project_id=project_id)
+        metrics_path = run_logs._metrics_path(user_id=user_id, project_id=project_id)
+        telemetry = RuntimeTelemetryRecorder(run_id=recorder.run_id, sink_path=metrics_path)
+        runtime_span = telemetry.span("runtime.total", category="runtime")
+        runtime_span.__enter__()
 
         async def traced_event_sink(event: dict[str, Any]) -> None:
             event_type = str(event.get("type") or "")
@@ -229,7 +238,8 @@ async def run_engineer_session(
             return False
 
         workspace_service = workspace_service_factory()
-        paths = workspace_service.resolve_paths(user_id=user_id, project_id=project_id)
+        with telemetry.span("workspace.resolve", category="workspace"):
+            paths = workspace_service.resolve_paths(user_id=user_id, project_id=project_id)
         await log_step(f"workspace resolved host_root={paths.host_root}")
 
         files_service = Project_filesService(db)
@@ -247,27 +257,29 @@ async def run_engineer_session(
             }
             for record in files_result["items"]
         ]
-        workspace_service.materialize_files(paths.host_root, file_records)
+        with telemetry.span("workspace.materialize", category="workspace"):
+            workspace_service.materialize_files(paths.host_root, file_records)
         await log_step(f"materialized {len(file_records)} project files")
 
         messages_service = MessagesService(db)
-        message_history_result = await messages_service.get_list(
-            skip=0,
-            limit=200,
-            user_id=user_id,
-            query_dict={"project_id": project_id},
-            sort="created_at",
-        )
-        persisted_history = [
-            {
-                "role": message.role,
-                "content": message.content,
-                "agent": message.agent,
-                "model": message.model,
-                "created_at": message.created_at.isoformat() if message.created_at else None,
-            }
-            for message in message_history_result["items"]
-        ]
+        with telemetry.span("messages.load", category="runtime"):
+            message_history_result = await messages_service.get_list(
+                skip=0,
+                limit=200,
+                user_id=user_id,
+                query_dict={"project_id": project_id},
+                sort="created_at",
+            )
+            persisted_history = [
+                {
+                    "role": message.role,
+                    "content": message.content,
+                    "agent": message.agent,
+                    "model": message.model,
+                    "created_at": message.created_at.isoformat() if message.created_at else None,
+                }
+                for message in message_history_result["items"]
+            ]
         logger.info(
             "%s persisted message history count=%s history=%s",
             prefix,
@@ -284,11 +296,12 @@ async def run_engineer_session(
         sandbox_service = sandbox_service_factory()
         try:
             await log_step("ensuring sandbox runtime")
-            container_name = await sandbox_service.ensure_runtime(
-                user_id=user_id,
-                project_id=project_id,
-                host_root=paths.host_root,
-            )
+            with telemetry.span("sandbox.ensure_runtime", category="runtime"):
+                container_name = await sandbox_service.ensure_runtime(
+                    user_id=user_id,
+                    project_id=project_id,
+                    host_root=paths.host_root,
+                )
             await log_step(f"sandbox ready container={container_name}")
         except Exception as exc:
             logger.exception("%s sandbox startup failed", prefix)
@@ -304,10 +317,14 @@ async def run_engineer_session(
             event_sink=workspace_events.emit,
             approval_gate=gate,
         )
+        def bash_telemetry_sink(event: dict[str, object]) -> None:
+            telemetry.event(str(event["name"]), category=str(event["category"]), attrs=dict(event.get("attrs") or {}))
+
         bash_session = ContainerBashSession(
             runtime_service=sandbox_service,
             container_name=container_name,
             approval_gate=gate,
+            telemetry_sink=bash_telemetry_sink,
         )
         from openmanus_runtime.tool.draft_plan import DraftPlanTool
         from openmanus_runtime.tool.load_skill import LoadSkillTool
@@ -435,13 +452,15 @@ async def run_engineer_session(
                 )
                 session_started = True
 
-            result = await agent.run(current_prompt)
+            with telemetry.span("agent.round", category="agent", attrs={"round": _round + 1}):
+                result = await agent.run(current_prompt)
 
             has_verification = bash_session.has_verification_run()
 
-            has_backend, backend_error = await _probe_backend_health(
-                sandbox_service, container_name, paths.host_root, preview_contract_loader
-            )
+            with telemetry.span("verification.backend_static_check", category="verification"):
+                has_backend, backend_error = await _probe_backend_health(
+                    sandbox_service, container_name, paths.host_root, preview_contract_loader
+                )
 
             # Backend import check passing IS meaningful verification — don't require a
             # separate agent-run command when the gate already confirmed the code is sound.
@@ -498,43 +517,44 @@ async def run_engineer_session(
             )
 
         try:
-            snapshot = workspace_service.snapshot_files(paths.host_root)
-            changed_paths: list[str] = []
-            await log_step(f"snapshot captured files={len(snapshot)}")
+            with telemetry.span("workspace.snapshot_sync", category="workspace"):
+                snapshot = workspace_service.snapshot_files(paths.host_root)
+                changed_paths: list[str] = []
+                await log_step(f"snapshot captured files={len(snapshot)}")
 
-            for rel_path, file_info in snapshot.items():
-                file_name = Path(rel_path).name
-                existing_list = await files_service.get_list(
-                    skip=0,
-                    limit=1,
-                    user_id=user_id,
-                    query_dict={"project_id": project_id, "file_path": rel_path},
-                )
-                existing = existing_list["items"]
-                if existing:
-                    existing_record = existing[0]
-                    if existing_record.content != file_info["content"]:
-                        await files_service.update(
-                            existing_record.id,
-                            {"content": file_info["content"]},
+                for rel_path, file_info in snapshot.items():
+                    file_name = Path(rel_path).name
+                    existing_list = await files_service.get_list(
+                        skip=0,
+                        limit=1,
+                        user_id=user_id,
+                        query_dict={"project_id": project_id, "file_path": rel_path},
+                    )
+                    existing = existing_list["items"]
+                    if existing:
+                        existing_record = existing[0]
+                        if existing_record.content != file_info["content"]:
+                            await files_service.update(
+                                existing_record.id,
+                                {"content": file_info["content"]},
+                                user_id=user_id,
+                            )
+                            changed_paths.append(rel_path)
+                    else:
+                        await files_service.create(
+                            {
+                                "project_id": project_id,
+                                "file_path": rel_path,
+                                "file_name": file_name,
+                                "content": file_info["content"],
+                                "is_directory": False,
+                            },
                             user_id=user_id,
                         )
                         changed_paths.append(rel_path)
-                else:
-                    await files_service.create(
-                        {
-                            "project_id": project_id,
-                            "file_path": rel_path,
-                            "file_name": file_name,
-                            "content": file_info["content"],
-                            "is_directory": False,
-                        },
-                        user_id=user_id,
-                    )
-                    changed_paths.append(rel_path)
 
-            await traced_event_sink({"type": "workspace_sync", "changed_files": changed_paths})
-            await log_step(f"workspace sync updated_files={len(changed_paths)}")
+                await traced_event_sink({"type": "workspace_sync", "changed_files": changed_paths})
+                await log_step(f"workspace sync updated_files={len(changed_paths)}")
         except Exception as sync_exc:
             logger.warning("%s workspace sync failed: %s", prefix, sync_exc)
             recorder.error(f"workspace sync failed: {sync_exc}")
@@ -568,7 +588,8 @@ async def run_engineer_session(
             }
 
             await log_step("starting preview services")
-            returncode, stdout, stderr = await sandbox_service.start_preview_services(container_name, env=preview_env)
+            with telemetry.span("preview.start_services", category="preview"):
+                returncode, stdout, stderr = await sandbox_service.start_preview_services(container_name, env=preview_env)
             if returncode != 0:
                 stderr_lines = stderr.strip().splitlines() if stderr.strip() else []
                 stderr_tail = stderr_lines[-1] if stderr_lines else ""
@@ -617,25 +638,27 @@ async def run_engineer_session(
                     )
 
                     await log_step(f"waiting for frontend service path={frontend_health_path}")
-                    frontend_ready = await sandbox_service.wait_for_service(
-                        container_name=container_name,
-                        port=3000,
-                        path=frontend_health_path,
-                        timeout_seconds=60.0,
-                        poll_interval_seconds=1.0,
-                    )
+                    with telemetry.span("preview.wait.frontend", category="preview"):
+                        frontend_ready = await sandbox_service.wait_for_service(
+                            container_name=container_name,
+                            port=3000,
+                            path=frontend_health_path,
+                            timeout_seconds=60.0,
+                            poll_interval_seconds=1.0,
+                        )
                     await log_step(f"frontend wait completed ready={frontend_ready}")
 
                     backend_ready = False
                     if contract and contract.backend:
                         await log_step(f"waiting for backend service path={backend_health_path}")
-                        backend_ready = await sandbox_service.wait_for_service(
-                            container_name=container_name,
-                            port=8000,
-                            path=backend_health_path,
-                            timeout_seconds=60.0,
-                            poll_interval_seconds=1.0,
-                        )
+                        with telemetry.span("preview.wait.backend", category="preview"):
+                            backend_ready = await sandbox_service.wait_for_service(
+                                container_name=container_name,
+                                port=8000,
+                                path=backend_health_path,
+                                timeout_seconds=60.0,
+                                poll_interval_seconds=1.0,
+                            )
                         await log_step(f"backend wait completed ready={backend_ready}")
 
                     if not frontend_ready:
@@ -688,20 +711,34 @@ async def run_engineer_session(
                         if contract and contract.backend:
                             backend_status = "running" if backend_ready else "stopped"
 
-                        session = await sessions_service.create(
-                            {
-                                **session_key_fields,
-                                "user_id": user_id,
-                                "project_id": project_id,
-                                "container_name": container_name,
-                                "status": "running",
-                                "preview_port": preview_port,
-                                "frontend_port": frontend_port,
-                                "backend_port": backend_port,
-                                "frontend_status": "running",
-                                "backend_status": backend_status,
-                            }
-                        )
+                        if contract and contract.backend:
+                            with telemetry.span("preview.smoke", category="smoke"):
+                                smoke_result = await PreviewSmokeRunner(sandbox_service).run(
+                                    container_name, paths.host_root
+                                )
+                            if not smoke_result.ok:
+                                reasons = [f"{failure.name}: {failure.reason}" for failure in smoke_result.failures]
+                                recorder.error("preview failed smoke_failed")
+                                await traced_event_sink(
+                                    {"type": "preview_failed", "reason": "smoke_failed", "failures": reasons}
+                                )
+                                return False
+
+                        with telemetry.span("preview.session.create", category="preview"):
+                            session = await sessions_service.create(
+                                {
+                                    **session_key_fields,
+                                    "user_id": user_id,
+                                    "project_id": project_id,
+                                    "container_name": container_name,
+                                    "status": "running",
+                                    "preview_port": preview_port,
+                                    "frontend_port": frontend_port,
+                                    "backend_port": backend_port,
+                                    "frontend_status": "running",
+                                    "backend_status": backend_status,
+                                }
+                            )
                         await log_step("preview ready")
                         await traced_event_sink(
                             {
@@ -744,9 +781,21 @@ async def run_engineer_session(
     except Exception as exc:
         logger.exception("%s run_engineer_session failed", prefix)
         try:
-            recorder.error(str(exc))
-            recorder.set_status("failed")
+            if recorder is not None:
+                recorder.error(str(exc))
+                recorder.set_status("failed")
         except Exception:
             logger.debug("%s failed to record run error", prefix)
         await event_sink({"type": "error", "status": "failure", "error": str(exc)})
         return False
+    finally:
+        if runtime_span is not None:
+            try:
+                runtime_span.__exit__(None, None, None)
+            except Exception:
+                logger.debug("%s failed to close runtime telemetry span", prefix)
+        if recorder is not None and telemetry is not None:
+            try:
+                recorder.metric_summary(telemetry.summary())
+            except Exception:
+                logger.debug("%s failed to write runtime telemetry summary", prefix)
