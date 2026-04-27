@@ -102,18 +102,13 @@ ensure_backend_venv() {
   local venv_dir="${backend_root}/.venv"
   if [[ ! -x "${venv_dir}/bin/python" ]]; then
     echo "start-preview: creating venv at ${venv_dir}" >&2
-    python3 -m venv "${venv_dir}"
+    uv venv "${venv_dir}"
   else
     echo "start-preview: reusing existing venv at ${venv_dir}" >&2
   fi
   if [[ -f "${backend_root}/requirements.txt" ]]; then
-    if [[ -x "${venv_dir}/bin/pip" ]]; then
-      echo "start-preview: installing requirements via pip" >&2
-      "${venv_dir}/bin/pip" install -q -r "${backend_root}/requirements.txt"
-    else
-      echo "start-preview: pip not found in venv (uv-managed), using uv pip install" >&2
-      uv pip install -q --python "${venv_dir}/bin/python" -r "${backend_root}/requirements.txt"
-    fi
+    echo "start-preview: installing requirements" >&2
+    uv pip install -q --python "${venv_dir}/bin/python" -r "${backend_root}/requirements.txt"
   fi
 }
 

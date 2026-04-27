@@ -50,6 +50,63 @@ def _log_prefix(trace_id: str | None) -> str:
     return f"[agent:{trace_id}]" if trace_id else "[agent]"
 
 
+def _extract_backend_dir(command: str) -> str:
+    """Extract the working directory from a preview.json backend command like 'cd /x/y && ...'."""
+    import re
+    m = re.match(r"cd\s+(\S+)\s*&&", command)
+    return m.group(1) if m else "/workspace/app/backend"
+
+
+async def _probe_backend_health(
+    sandbox_service: Any,
+    container_name: str,
+    host_root: Path,
+    preview_contract_loader: "PreviewContractLoader",
+) -> tuple[bool, str | None]:
+    """Check backend code correctness via static import rather than probing a live port.
+
+    Returns (has_backend, error_message):
+      (False, None)  — no backend section in preview.json, nothing to check
+      (True,  None)  — backend exists and import check passed
+      (True,  str)   — backend exists but check failed; str is the pushback message
+    """
+    try:
+        contract = preview_contract_loader(host_root)
+    except Exception:
+        return False, None
+    if contract is None or contract.backend is None:
+        return False, None
+
+    backend_dir = _extract_backend_dir(contract.backend.command)
+    healthcheck_path = contract.backend.healthcheck_path or "/health"
+
+    install_step = "([ -f requirements.txt ] && uv pip install -r requirements.txt -q 2>&1 || true)"
+    import_check = (
+        "uv run python -c \""
+        "from main import app; "
+        "routes = [getattr(r, 'path', '') for r in app.routes]; "
+        f"assert '{healthcheck_path}' in routes, "
+        f"'Missing {healthcheck_path} route. Found: ' + str(routes); "
+        "print('ok')\""
+    )
+    check_cmd = f"cd {backend_dir} && {install_step} && {import_check} 2>&1"
+
+    try:
+        _, out, _ = await sandbox_service.exec(container_name, check_cmd)
+        if out.strip().endswith("ok"):
+            return True, None
+        error_output = out.strip() or "(no output)"
+    except Exception as exc:
+        error_output = str(exc)
+
+    return True, (
+        f"Backend code check FAILED. The app could not be imported or is missing the {healthcheck_path} route.\n"
+        "Fix the import errors or add the missing endpoint, then verify with:\n"
+        f"  cd {backend_dir} && uv run python -c \"from main import app; print('ok')\"\n"
+        f"Error output:\n```\n{error_output}\n```"
+    )
+
+
 async def run_engineer_session(
     *,
     db: AsyncSession,
@@ -259,15 +316,28 @@ async def run_engineer_session(
             '}\n'
             'The "backend" object is optional when the app is frontend-only.\n'
             "If your app has a backend API, set the VITE_ATOMS_PREVIEW_BACKEND_BASE "
-            "environment variable in the frontend so it can reach the backend.\n"
+            "environment variable in the frontend and use it as the base for every API call:\n"
+            "  const backendBase = (import.meta.env.VITE_ATOMS_PREVIEW_BACKEND_BASE ?? '').replace(/\\/$/, '');\n"
+            "  const res = await fetch(`${backendBase}/api/your-endpoint`);\n"
+            "Never hardcode 'http://localhost:8000'; never concatenate two slashes.\n"
             "If you build a backend, you MUST create app/backend/main.py as the entrypoint "
             "and include a GET /health endpoint that returns HTTP 200 `{\"status\": \"healthy\"}`. "
             "You MUST also create app/backend/requirements.txt containing `fastapi`, `uvicorn`, and any other dependencies.\n"
+            "Python imports inside backend files MUST be relative to /workspace/app/backend/ "
+            "(that is the working directory when uvicorn launches via `cd /workspace/app/backend && uvicorn main:app`). "
+            "Write `from routers import color`, `from services.color_service import generate_palette` — "
+            "NEVER `from app.backend.routers import` or `from app.backend.services import`.\n"
             "If you build a React SPA with React Router or any client-side router, "
             "it must work under the preview base path instead of assuming '/'. "
             "For BrowserRouter, set a basename derived from the current preview path or an equivalent mechanism.\n"
-            "Do not start the preview services yourself; focus on writing code and "
-            "one-off verification commands.\n\n"
+            "Do not start the preview services yourself (start-preview handles this automatically).\n"
+            "Do NOT create a .env file that sets VITE_ATOMS_PREVIEW_BACKEND_BASE — "
+            "this variable is injected by start-preview at runtime and must not be hardcoded.\n"
+            "For backend verification use ONLY the static import test — never start uvicorn manually:\n"
+            "  cd /workspace/app/backend && uv pip install -r requirements.txt -q 2>&1 && uv run python -c \"from main import app; print('ok')\"\n"
+            "Always install requirements before running the import test. "
+            "This confirms imports and app construction without starting a process.\n"
+            "If you ever start a background process for any reason, do NOT kill it before calling terminate.\n\n"
             "## Orchestration Workflow\n\n"
             "For implementation requests:\n"
             "1. Briefly acknowledge the user's request in 1-2 sentences, then call `draft_plan` with a short numbered list (3-7 items) — keep draft_plan in its own turn, separate from other tool calls. Wait for user approval.\n"
@@ -280,7 +350,13 @@ async def run_engineer_session(
             "4. Implement the plan step by step. You MUST continuously call `task_update` to update task statuses "
             "to 'completed' as you finish them, and set the next task to 'in_progress'. "
             "When a task is marked 'completed', it will automatically unblock dependent tasks.\\n"
-            "5. Run verification commands (e.g., pytest, npm test, curl) when done to verify your work.\\n"
+            "   For frontend apps, create infrastructure files FIRST (package.json, vite.config.ts, index.html, main.tsx, tsconfig.json) "
+            "before writing any component files. This ensures pnpm install and builds work from the start.\\n"
+            "5. Verify before finishing — use ONLY these commands, do NOT start background servers:\\n"
+            "   Backend: cd /workspace/app/backend && uv pip install -r requirements.txt -q 2>&1 && uv run python -c \"from main import app; print('ok')\"\\n"
+            "   Frontend: cd /workspace/app/frontend && pnpm run build 2>&1 | tail -5\\n"
+            "   Always install requirements before the import test.\\n"
+            "   A completion gate re-runs the backend import check after you terminate; if it fails you will be asked to fix it.\\n"
             "6. You MUST ensure ALL tasks are marked as 'completed' via `task_update` BEFORE you finish. Do NOT attempt "
             "to finish if any task is still pending or in_progress.\\n"
             "7. After ALL tasks are completed and verification has passed, you MUST send one final message to the user "
@@ -328,28 +404,43 @@ async def run_engineer_session(
 
             has_verification = bash_session.has_verification_run()
 
-            if not tasks or (not incomplete_tasks and has_verification):
+            has_backend, backend_error = await _probe_backend_health(
+                sandbox_service, container_name, paths.host_root, preview_contract_loader
+            )
+
+            # Backend import check passing IS meaningful verification — don't require a
+            # separate agent-run command when the gate already confirmed the code is sound.
+            backend_passed = has_backend and backend_error is None
+            verification_ok = has_verification or backend_passed
+
+            tasks_done = not tasks or (not incomplete_tasks and verification_ok)
+            if tasks_done and not backend_error:
                 break
 
             pushback_msgs = []
+            if backend_error:
+                pushback_msgs.append(f"- {backend_error}")
             if incomplete_tasks:
                 titles = ", ".join([f"'{t.subject}'" for t in incomplete_tasks])
                 pushback_msgs.append(
                     f"- Tasks not completed: {titles}. Mark each completed via task_update."
                 )
-            if tasks and not has_verification:
+            if tasks and not verification_ok:
                 pushback_msgs.append(
-                    "- No verification command run. Execute pytest, npm test, curl, or equivalent before finishing."
+                    "- No verification command run. For backend run: "
+                    "cd /workspace/app/backend && uv run python -c \"from main import app; print('ok')\". "
+                    "For frontend run: pnpm run build."
                 )
 
             current_prompt = (
-                "COMPLETION GATE — you may not finish until all tasks are marked completed and verification has run:\n"
+                "COMPLETION GATE — you may not finish until all tasks are marked completed, "
+                "verification has run, and the backend (if any) passes the import check:\n"
                 + "\n".join(pushback_msgs)
             )
 
             await log_step(
                 f"Completion gate: {len(incomplete_tasks)} incomplete task(s), "
-                f"verification={has_verification}. Continuing same agent."
+                f"verification={has_verification}, backend_passed={backend_passed}. Continuing same agent."
             )
             await traced_event_sink({
                 "type": "assistant",

@@ -361,15 +361,41 @@ async def delete_projects(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a single projects by ID (requires ownership)"""
+    import shutil
+    from pathlib import Path
+    from services.sandbox_runtime import SandboxRuntimeService
+
     logger.debug(f"Deleting projects with id: {id}")
-    
+
     service = ProjectsService(db)
     try:
         success = await service.delete(id, user_id=str(current_user.id))
         if not success:
             logger.warning(f"Projects with id {id} not found for deletion")
             raise HTTPException(status_code=404, detail="Projects not found")
-        
+
+        import os
+        workspaces_root = Path(os.environ.get("ATOMS_WORKSPACES_ROOT", "/tmp/atoms_workspaces"))
+        user_id = str(current_user.id)
+        sandbox = SandboxRuntimeService(project_root=workspaces_root)
+        container_name = sandbox._container_name(user_id=user_id, project_id=id)
+        try:
+            rc, _, _ = await sandbox._invoke("docker", "rm", "-f", container_name)
+            if rc == 0:
+                logger.info("Removed container %s for deleted project %s", container_name, id)
+            else:
+                logger.debug("Container %s not found or already removed", container_name)
+        except Exception as exc:
+            logger.warning("Failed to remove container %s: %s", container_name, exc)
+
+        workspace_dir = sandbox.project_root / user_id / str(id)
+        try:
+            if workspace_dir.exists():
+                shutil.rmtree(workspace_dir)
+                logger.info("Removed workspace dir %s for deleted project %s", workspace_dir, id)
+        except Exception as exc:
+            logger.warning("Failed to remove workspace dir %s: %s", workspace_dir, exc)
+
         logger.info(f"Projects {id} deleted successfully")
         return {"message": "Projects deleted successfully", "id": id}
     except HTTPException:

@@ -45,13 +45,15 @@ class AgentRunRecorder:
         self._append(kind="error", content=f"! {content}")
 
     def set_status(self, status: str) -> None:
+        now = _utc_now_iso()
         self.store.write_manifest(
             user_id=self.user_id,
             project_id=self.project_id,
             payload={
                 "run_id": self.run_id,
                 "status": status,
-                "updated_at": _utc_now_iso(),
+                "updated_at": now,
+                "ended_at": now,
             },
             merge=True,
         )
@@ -126,12 +128,6 @@ class AgentRunLogStore:
         entries_path.parent.mkdir(parents=True, exist_ok=True)
         with entries_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        self.write_manifest(
-            user_id=user_id,
-            project_id=project_id,
-            payload={"run_id": run_id, "updated_at": entry["created_at"]},
-            merge=True,
-        )
 
     def read_latest_run(self, *, user_id: str, project_id: int) -> dict[str, object] | None:
         manifest_path = self._manifest_path(user_id=user_id, project_id=project_id)

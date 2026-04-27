@@ -60,26 +60,20 @@ class TaskUpdateTool(BaseTool):
             raise ToolError("task_update requires a request_key")
 
         store = self._task_store_factory()
-        
-        # Check if another task is already in progress when setting to in_progress
-        if status == "in_progress":
-            tasks = await store.list_tasks(project_id=self._project_id, request_key=effective_request_key)
-            in_prog = [t for t in tasks if t.status == "in_progress" and t.task_key != task_id]
-            if in_prog:
-                raise ToolError(f"Task '{in_prog[0].task_key}' is currently in_progress. Complete it first.")
-            
-            # Check blockers
-            task_obj = next((t for t in tasks if t.task_key == task_id), None)
-            if not task_obj:
-                raise ToolError(f"Task '{task_id}' not found.")
-            if task_obj.blocked_by:
-                raise ToolError(f"Task '{task_id}' is blocked by {task_obj.blocked_by}. Complete them first.")
 
-        # Update
         tasks = await store.list_tasks(project_id=self._project_id, request_key=effective_request_key)
         task_obj = next((t for t in tasks if t.task_key == task_id), None)
         if not task_obj:
             raise ToolError(f"Task '{task_id}' not found.")
+
+        if status == "in_progress":
+            in_prog = [t for t in tasks if t.status == "in_progress" and t.task_key != task_id]
+            if in_prog:
+                raise ToolError(f"Task '{in_prog[0].task_key}' is currently in_progress. Complete it first.")
+
+        # Both in_progress and completed require no outstanding blockers
+        if task_obj.blocked_by:
+            raise ToolError(f"Task '{task_id}' is blocked by {task_obj.blocked_by}. Complete them first.")
             
         await store.update_task(task_id=task_obj.id, status=status)
         

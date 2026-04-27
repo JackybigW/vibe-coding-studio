@@ -23,6 +23,17 @@ class StreamingSWEAgent(SWEAgent):
             return
         await self.event_emitter({"type": event_type, **payload})
 
+    # Tools that produce no terminal output: their UI feedback comes from dedicated events
+    # (task_store.summary, draft_plan.*, file.snapshot) rather than raw text.
+    _SILENT_TOOLS: frozenset[str] = frozenset({"draft_plan", "todo_write", "load_skill", "task_update"})
+    _TERMINAL_TRUNCATE_CHARS: int = 3000
+
+    @staticmethod
+    def _truncate_output(text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        return text[:limit] + f"\n…[{len(text) - limit} chars truncated]"
+
     async def step(self) -> str:
         prev_len = len(self.memory.messages)
         should_act = await self.think()
@@ -37,28 +48,28 @@ class StreamingSWEAgent(SWEAgent):
             # handles display via draft_plan.* events; emitting raw content here would
             # show the JSON arguments as a chat bubble before the plan card appears.
             tool_names = {tc.function.name for tc in (message.tool_calls or [])}
-            
+
             content_to_emit = message.content or ""
-            
+
             if content_to_emit:
                 if "draft_plan" in tool_names:
                     import re
                     # Remove markdown JSON block containing request_key and items
                     pattern = re.compile(r"```json\s*\{.*?\"request_key\".*?\"items\".*?\}\s*```", re.DOTALL)
                     content_to_emit = pattern.sub("", content_to_emit).strip()
-                    
+
                     # If after stripping it's still just a raw JSON object with these keys, ignore it
                     c_stripped = content_to_emit.strip()
                     if c_stripped.startswith("{") and c_stripped.endswith("}") and '"request_key"' in c_stripped and '"items"' in c_stripped:
                         content_to_emit = ""
-                
+
                 # Check if it's just the raw JSON of the plan (which can happen immediately after draft_plan returns)
                 c_stripped = content_to_emit.strip()
                 if c_stripped.startswith("```json"):
                     c_stripped = c_stripped[7:].strip()
                 if c_stripped.endswith("```"):
                     c_stripped = c_stripped[:-3].strip()
-                    
+
                 if c_stripped.startswith("[") and c_stripped.endswith("]") and '"id"' in c_stripped and '"text"' in c_stripped:
                     try:
                         import json
@@ -76,13 +87,10 @@ class StreamingSWEAgent(SWEAgent):
                     agent=self.name,
                 )
 
-            if message.tool_calls:
-                _SILENT_TOOLS = frozenset({"draft_plan", "todo_write", "load_skill"})
+            if message.tool_calls and workspace_events is not None:
                 for tool_call in message.tool_calls:
-                    if workspace_events is not None:
-                        if tool_call.function.name not in _SILENT_TOOLS:
-                            await workspace_events.progress(f"Running {tool_call.function.name}")
-                            await workspace_events.terminal_log(f"$ tool {tool_call.function.name}")
+                    if tool_call.function.name not in self._SILENT_TOOLS:
+                        await workspace_events.progress(f"Running {tool_call.function.name}")
 
         if not should_act:
             return "Thinking complete - no action needed"
@@ -105,8 +113,9 @@ class StreamingSWEAgent(SWEAgent):
                 base64_image=self._current_base64_image,
             )
             self.memory.add_message(tool_msg)
-            if workspace_events is not None:
-                await workspace_events.terminal_log(result)
+            if workspace_events is not None and command.function.name not in self._SILENT_TOOLS:
+                truncated = self._truncate_output(result, self._TERMINAL_TRUNCATE_CHARS)
+                await workspace_events.terminal_log(f"$ {command.function.name}\n{truncated}")
             results.append(result)
 
         return "\n\n".join(results)
