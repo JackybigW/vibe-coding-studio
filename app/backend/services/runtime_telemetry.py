@@ -1,4 +1,5 @@
 import json
+import math
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -24,6 +25,8 @@ def _utc_now_iso() -> str:
 
 
 def _safe_json_value(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
     if value is None or isinstance(value, str | int | float | bool):
         return value
     if isinstance(value, Path):
@@ -130,4 +133,4 @@ class RuntimeTelemetryRecorder:
         }
         self._records.append(record)
         with self.sink_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_safe_json_value(record), ensure_ascii=False) + "\n")
+            handle.write(json.dumps(_safe_json_value(record), ensure_ascii=False, allow_nan=False) + "\n")

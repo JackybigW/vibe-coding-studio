@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -104,6 +105,27 @@ def test_runtime_telemetry_safely_serializes_attrs(tmp_path):
         "set": ["alpha", "beta"],
         "fallback": "custom-value",
     }
+
+
+def test_runtime_telemetry_serializes_non_finite_floats_as_strict_json(tmp_path):
+    metrics_path = tmp_path / "latest_metrics.jsonl"
+    recorder = RuntimeTelemetryRecorder(run_id="run-1", sink_path=metrics_path)
+
+    recorder.event(
+        "dependency_cache.hit",
+        category="dependency",
+        attrs={"nan": math.nan, "inf": math.inf, "neg_inf": -math.inf},
+    )
+
+    raw_metrics = metrics_path.read_text(encoding="utf-8")
+    row = json.loads(
+        raw_metrics,
+        parse_constant=lambda value: pytest.fail(f"non-standard JSON token written: {value}"),
+    )
+
+    assert "NaN" not in raw_metrics
+    assert "Infinity" not in raw_metrics
+    assert row["attrs"] == {"nan": "nan", "inf": "inf", "neg_inf": "-inf"}
 
 
 def test_runtime_telemetry_init_creates_parent_dirs_and_truncates_sink(tmp_path):
