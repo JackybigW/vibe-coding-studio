@@ -55,6 +55,9 @@ def load_smoke_contract(host_root: Path) -> SmokeContract | None:
     if not isinstance(payload, dict):
         raise ValueError("Smoke contract payload must be a dict")
 
+    if "version" not in payload:
+        raise ValueError("Smoke contract missing version")
+
     version = payload["version"]
     if version != 1:
         raise ValueError(f"Unsupported smoke contract version: {version!r}")
@@ -73,37 +76,44 @@ def _parse_check(payload: Any, index: int) -> SmokeCheck:
     if not isinstance(payload, dict):
         raise ValueError(f"Smoke check {index} must be a dict")
 
-    try:
-        name = str(payload["name"])
-    except KeyError as exc:
-        raise ValueError(f"Smoke check {index} missing name") from exc
+    if "name" not in payload:
+        raise ValueError(f"Smoke check {index} missing name")
+
+    name = payload["name"]
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"Smoke check {index} name must be a non-empty string")
 
     label = f"Smoke check {index} ({name})"
-    path = payload["path"]
+    path = _required_check_field(payload, "path", label)
     if not isinstance(path, str) or not path.startswith("/"):
         raise ValueError(f"{label} path must start with /")
 
-    service = payload["service"]
+    service = _required_check_field(payload, "service", label)
     if service not in ("frontend", "backend"):
         raise ValueError(f"{label} has unsupported service: {service!r}")
 
-    method = payload["method"]
+    method = _required_check_field(payload, "method", label)
     if method not in ("GET", "POST"):
         raise ValueError(f"{label} has unsupported method: {method!r}")
 
     if method == "GET" and "json" in payload:
         raise ValueError(f"{label} json is only valid for POST")
 
-    expect_payload = payload["expect"]
+    expect_payload = _required_check_field(payload, "expect", label)
     if not isinstance(expect_payload, dict):
         raise ValueError(f"{label} expect must be a dict")
+
+    if "status" not in expect_payload:
+        raise ValueError(f"{label} missing expect.status")
 
     status = expect_payload["status"]
     if type(status) is not int:
         raise ValueError(f"{label} expect.status must be an int")
 
-    body_prefix_base64 = expect_payload.get("body_prefix_base64")
-    if body_prefix_base64 is not None:
+    content_type = _optional_string(expect_payload, "content_type", label)
+    body_contains = _optional_string(expect_payload, "body_contains", label)
+    body_prefix_base64 = _optional_string(expect_payload, "body_prefix_base64", label)
+    if body_prefix_base64:
         try:
             base64.b64decode(body_prefix_base64, validate=True)
         except ValueError as exc:
@@ -111,23 +121,38 @@ def _parse_check(payload: Any, index: int) -> SmokeCheck:
 
     expect = SmokeExpectation(
         status=status,
-        content_type=expect_payload.get("content_type"),
-        body_contains=expect_payload.get("body_contains"),
+        content_type=content_type,
+        body_contains=body_contains,
         body_prefix_base64=body_prefix_base64,
     )
     headers = payload.get("headers")
     if headers is not None and not isinstance(headers, dict):
         raise ValueError(f"{label} headers must be a dict")
+    if headers is not None and not all(isinstance(key, str) and isinstance(value, str) for key, value in headers.items()):
+        raise ValueError(f"{label} headers must be a dict of strings")
 
     return SmokeCheck(
         name=name,
         service=service,
         method=method,
         path=path,
-        headers={str(key): str(value) for key, value in headers.items()} if headers else None,
+        headers=headers,
         json_body=payload.get("json"),
         expect=expect,
     )
+
+
+def _required_check_field(payload: dict[str, Any], field: str, label: str) -> Any:
+    if field not in payload:
+        raise ValueError(f"{label} missing {field}")
+    return payload[field]
+
+
+def _optional_string(payload: dict[str, Any], field: str, label: str) -> str | None:
+    value = payload.get(field)
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"{label} {field} must be a string")
+    return value
 
 
 def smoke_contract_required(openapi: dict[str, Any]) -> bool:

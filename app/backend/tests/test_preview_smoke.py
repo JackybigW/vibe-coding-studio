@@ -2,13 +2,27 @@ import json
 
 import pytest
 
-from services.preview_smoke import PreviewSmokeRunner, SmokeFailure, load_smoke_contract
+from services.preview_smoke import PreviewSmokeRunner, SmokeFailure, _parse_check, load_smoke_contract
 
 
 def write_smoke_contract(tmp_path, contract):
     atoms_dir = tmp_path / ".atoms"
     atoms_dir.mkdir()
     (atoms_dir / "smoke.json").write_text(json.dumps(contract), encoding="utf-8")
+
+
+def smoke_contract_with_check(check):
+    return {"version": 1, "checks": [check]}
+
+
+def valid_smoke_check():
+    return {
+        "name": "health",
+        "service": "backend",
+        "method": "GET",
+        "path": "/health",
+        "expect": {"status": 200},
+    }
 
 
 def test_load_smoke_contract_reads_checks(tmp_path):
@@ -136,6 +150,49 @@ def test_load_smoke_contract_rejects_non_list_checks(tmp_path):
         load_smoke_contract(tmp_path)
 
 
+def test_load_smoke_contract_rejects_missing_version(tmp_path):
+    write_smoke_contract(tmp_path, {"checks": []})
+
+    with pytest.raises(ValueError, match="missing version"):
+        load_smoke_contract(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("path", "missing path"),
+        ("service", "missing service"),
+        ("method", "missing method"),
+        ("expect", "missing expect"),
+    ],
+)
+def test_load_smoke_contract_rejects_missing_check_fields(tmp_path, field, message):
+    check = valid_smoke_check()
+    del check[field]
+    write_smoke_contract(tmp_path, smoke_contract_with_check(check))
+
+    with pytest.raises(ValueError, match=message):
+        load_smoke_contract(tmp_path)
+
+
+def test_load_smoke_contract_rejects_missing_expect_status(tmp_path):
+    check = valid_smoke_check()
+    check["expect"] = {}
+    write_smoke_contract(tmp_path, smoke_contract_with_check(check))
+
+    with pytest.raises(ValueError, match="missing expect.status"):
+        load_smoke_contract(tmp_path)
+
+
+def test_load_smoke_contract_rejects_empty_name(tmp_path):
+    check = valid_smoke_check()
+    check["name"] = ""
+    write_smoke_contract(tmp_path, smoke_contract_with_check(check))
+
+    with pytest.raises(ValueError, match="name must be a non-empty string"):
+        load_smoke_contract(tmp_path)
+
+
 def test_load_smoke_contract_rejects_string_status(tmp_path):
     write_smoke_contract(
         tmp_path,
@@ -198,6 +255,42 @@ def test_load_smoke_contract_rejects_invalid_body_prefix_base64(tmp_path):
 
     with pytest.raises(ValueError, match=r"check 0 .*body_prefix_base64 must be valid base64"):
         load_smoke_contract(tmp_path)
+
+
+def test_load_smoke_contract_rejects_non_string_body_prefix_base64(tmp_path):
+    check = valid_smoke_check()
+    check["expect"]["body_prefix_base64"] = 123
+    write_smoke_contract(tmp_path, smoke_contract_with_check(check))
+
+    with pytest.raises(ValueError, match=r"check 0 .*body_prefix_base64 must be a string"):
+        load_smoke_contract(tmp_path)
+
+
+@pytest.mark.parametrize("field", ["content_type", "body_contains"])
+def test_load_smoke_contract_rejects_non_string_expectation_fields(tmp_path, field):
+    check = valid_smoke_check()
+    check["expect"][field] = 123
+    write_smoke_contract(tmp_path, smoke_contract_with_check(check))
+
+    with pytest.raises(ValueError, match=rf"check 0 .*{field} must be a string"):
+        load_smoke_contract(tmp_path)
+
+
+def test_load_smoke_contract_rejects_non_string_header_value(tmp_path):
+    check = valid_smoke_check()
+    check["headers"] = {"accept": 123}
+    write_smoke_contract(tmp_path, smoke_contract_with_check(check))
+
+    with pytest.raises(ValueError, match=r"check 0 .*headers must be a dict of strings"):
+        load_smoke_contract(tmp_path)
+
+
+def test_parse_smoke_check_rejects_non_string_header_key():
+    check = valid_smoke_check()
+    check["headers"] = {1: "application/json"}
+
+    with pytest.raises(ValueError, match=r"check 0 .*headers must be a dict of strings"):
+        _parse_check(check, 0)
 
 
 @pytest.mark.asyncio
