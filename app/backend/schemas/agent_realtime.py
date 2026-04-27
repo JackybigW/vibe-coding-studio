@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -46,3 +46,5 @@ class AgentLatestRunLogsResponse(BaseModel):
     started_at: datetime | None = None
     updated_at: datetime | None = None
     entries: list[AgentRunLogEntryPayload] = Field(default_factory=list)
+    metrics: list[dict[str, Any]] = Field(default_factory=list)
+    metrics_summary: dict[str, Any] | None = None

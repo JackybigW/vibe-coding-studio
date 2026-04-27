@@ -2,6 +2,7 @@ import json
 import math
 from pathlib import Path
 
+from schemas.agent_realtime import AgentLatestRunLogsResponse
 from services.agent_run_logs import AgentRunLogStore
 
 
@@ -65,6 +66,21 @@ def test_agent_run_log_store_records_metrics(tmp_path):
         }
     ]
     assert run["metrics_summary"] == {"duration_ms": 123, "events": {"dependency_cache.hit": 1}}
+
+
+def test_agent_latest_run_logs_response_preserves_metrics(tmp_path):
+    store = AgentRunLogStore(base_root=tmp_path)
+    recorder = store.start_run(user_id="user-1", project_id=42)
+
+    recorder.metric_event("dependency_cache.hit", category="dependency", attrs={"scope": "backend"})
+    recorder.metric_summary({"duration_ms": 123, "events": {"dependency_cache.hit": 1}})
+
+    latest = store.read_latest_run(user_id="user-1", project_id=42)
+    response = AgentLatestRunLogsResponse(**latest)
+
+    dumped = response.model_dump()
+    assert dumped["metrics"] == latest["metrics"]
+    assert dumped["metrics_summary"] == latest["metrics_summary"]
 
 
 def test_agent_run_log_store_safely_serializes_metric_attrs(tmp_path: Path):
