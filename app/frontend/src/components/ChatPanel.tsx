@@ -54,6 +54,8 @@ interface Message {
 
 const MODELS = [
   { id: "MiniMax-M2.7", label: "MiniMax M2.7", icon: "⚡" },
+  { id: "mimo-v2.5-pro", label: "MiMo V2.5 Pro", icon: "🌾" },
+  { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", icon: "🔮" },
 ];
 
 const AGENTS = [

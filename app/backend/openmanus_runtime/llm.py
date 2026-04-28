@@ -80,6 +80,13 @@ def split_thinking_content(text: Optional[str]) -> tuple[Optional[str], str]:
     return thinking, content
 
 
+def normalize_assistant_message_content(message) -> tuple[Optional[str], str]:
+    message_dump = message.model_dump() if hasattr(message, "model_dump") else {}
+    reasoning_content = (message_dump.get("reasoning_content") or "").strip()
+    thinking, content = split_thinking_content(message.content)
+    return reasoning_content or thinking, content
+
+
 class _FallbackTokenizer:
     """Character-based token estimator used when tiktoken cannot download its data files."""
 
@@ -801,7 +808,7 @@ class LLM:
             )
 
             response_message = response.choices[0].message
-            thinking, content = split_thinking_content(response_message.content)
+            thinking, content = normalize_assistant_message_content(response_message)
             tool_calls = [
                 ToolCall.model_validate(
                     tool_call.model_dump()

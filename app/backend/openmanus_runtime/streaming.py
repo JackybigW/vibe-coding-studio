@@ -160,8 +160,20 @@ def build_agent_llm(model: Optional[str]) -> Optional[LLM]:
     if not model:
         return None
 
+    filtered = resolve_llm_settings_for_model(model)
+    return LLM(
+        config_name=f"request_{uuid.uuid4().hex}",
+        llm_config={"default": filtered},
+    )
+
+
+def resolve_llm_settings_for_model(model: str) -> LLMSettings:
+    for settings in config.llm.values():
+        if settings.model == model:
+            return settings
+
     base_settings = config.llm["default"]
-    filtered = LLMSettings(
+    return LLMSettings(
         model=model,
         base_url=base_settings.base_url,
         api_key=base_settings.api_key,
@@ -170,8 +182,4 @@ def build_agent_llm(model: Optional[str]) -> Optional[LLM]:
         temperature=base_settings.temperature,
         api_type=base_settings.api_type,
         api_version=base_settings.api_version,
-    )
-    return LLM(
-        config_name=f"request_{uuid.uuid4().hex}",
-        llm_config={"default": filtered},
     )

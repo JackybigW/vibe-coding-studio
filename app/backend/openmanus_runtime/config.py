@@ -94,7 +94,30 @@ class Config:
             api_type=os.getenv("OPENMANUS_API_TYPE", "openai"),
             api_version=os.getenv("OPENMANUS_API_VERSION", ""),
         )
-        return AppConfig(llm={"default": default_llm}, sandbox=SandboxSettings())
+        llm = {"default": default_llm}
+        for provider in ("mimo", "deepseek"):
+            provider_settings = self._load_provider_config(provider, default_llm)
+            if provider_settings is not None:
+                llm[provider] = provider_settings
+        return AppConfig(llm=llm, sandbox=SandboxSettings())
+
+    def _load_provider_config(self, provider: str, default_llm: LLMSettings) -> LLMSettings | None:
+        prefix = f"APP_AI_{provider.upper()}"
+        model = os.getenv(f"{prefix}_MODEL")
+        base_url = os.getenv(f"{prefix}_BASE_URL")
+        api_key = os.getenv(f"{prefix}_KEY")
+        if not (model and base_url and api_key):
+            return None
+        return LLMSettings(
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            max_tokens=default_llm.max_tokens,
+            max_input_tokens=default_llm.max_input_tokens,
+            temperature=default_llm.temperature,
+            api_type=default_llm.api_type,
+            api_version=default_llm.api_version,
+        )
 
     @property
     def llm(self) -> Dict[str, LLMSettings]:
