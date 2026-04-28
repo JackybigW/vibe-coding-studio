@@ -53,11 +53,7 @@ interface Message {
 }
 
 const MODELS = [
-  { id: "MiniMax-M2.7-highspeed", label: "MiniMax M2.7", icon: "⚡" },
-  { id: "deepseek-v3.2", label: "DeepSeek V3", icon: "🔮" },
-  { id: "gpt-5-chat", label: "GPT-5", icon: "🧠" },
-  { id: "claude-4-5-sonnet", label: "Claude 4.5", icon: "🎭" },
-  { id: "gemini-2.5-pro", label: "Gemini 2.5", icon: "💎" },
+  { id: "MiniMax-M2.7", label: "MiniMax M2.7", icon: "⚡" },
 ];
 
 const AGENTS = [
@@ -95,7 +91,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("MiniMax-M2.7-highspeed");
+  const [selectedModel, setSelectedModel] = useState("MiniMax-M2.7");
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeAssistantRendered, setActiveAssistantRendered] = useState("");
   const [activeAssistantAgent, setActiveAssistantAgent] = useState("engineer");

@@ -37,3 +37,20 @@ def test_openmanus_config_loads_llm_settings_from_env_file(tmp_path, monkeypatch
     assert llm_settings.base_url == "https://example-llm.invalid/v1"
     assert llm_settings.api_key == "test-key"
     assert llm_settings.model == "test-model"
+
+
+def test_openmanus_config_defaults_to_standard_minimax_model(monkeypatch):
+    for key in (
+        "APP_AI_DEFAULT_MODEL",
+        "OPENMANUS_MODEL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OPENMANUS_ENV_FILE", "/tmp/atoms-missing-test-env")
+
+    sys.modules.pop("openmanus_runtime.config", None)
+    config_module = importlib.import_module("openmanus_runtime.config")
+    config_module = importlib.reload(config_module)
+
+    llm_settings = config_module.config.llm["default"]
+
+    assert llm_settings.model == "MiniMax-M2.7"

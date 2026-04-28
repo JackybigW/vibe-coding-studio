@@ -96,7 +96,7 @@ sequenceDiagram
 | 后端 | FastAPI, SQLAlchemy async, Pydantic v2 |
 | 数据库 | SQLite 本地开发，PostgreSQL 生产可切换 |
 | 认证 | JWT, bcrypt, Google OIDC, Resend Email |
-| LLM Runtime | OpenAI-compatible client, MiniMax-M2.7-highspeed, tool calling |
+| LLM Runtime | OpenAI-compatible client, MiniMax-M2.7, tool calling |
 | Agent 工具 | bash, str_replace_editor, draft_plan, todo_write, task_update, load_skill, terminate |
 | 沙箱 | Docker, Node 20, Python 3, pnpm, uv |
 | Preview | start-preview, health check, smoke gate, same-origin preview gateway |
@@ -182,7 +182,7 @@ Atoms 使用 OpenAI-compatible client 接入大模型，默认配置是 MiniMax 
 
 ```env
 APP_AI_BASE_URL=https://api.minimax.chat/v1
-APP_AI_DEFAULT_MODEL=MiniMax-M2.7-highspeed
+APP_AI_DEFAULT_MODEL=MiniMax-M2.7
 APP_AI_KEY=your-minimax-api-key
 ```
 

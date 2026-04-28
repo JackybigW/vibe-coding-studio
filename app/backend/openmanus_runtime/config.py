@@ -81,7 +81,7 @@ class Config:
 
     def _load_initial_config(self) -> AppConfig:
         default_llm = LLMSettings(
-            model=os.getenv("OPENMANUS_MODEL", os.getenv("APP_AI_DEFAULT_MODEL", "MiniMax-M2.7-highspeed")),
+            model=os.getenv("OPENMANUS_MODEL", os.getenv("APP_AI_DEFAULT_MODEL", "MiniMax-M2.7")),
             base_url=os.getenv("OPENMANUS_BASE_URL", os.getenv("APP_AI_BASE_URL", "https://api.openai.com/v1")),
             api_key=os.getenv("OPENMANUS_API_KEY", os.getenv("APP_AI_KEY", "")),
             max_tokens=int(os.getenv("OPENMANUS_MAX_TOKENS", "4096")),
