@@ -1,4 +1,4 @@
-# Atoms Agent System Prompt (Reference Copy)
+# Vibe Coding Studio Agent System Prompt (Reference Copy)
 
 ---
 

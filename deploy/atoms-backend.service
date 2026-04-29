@@ -1,5 +1,5 @@
 [Unit]
-Description=Atoms Backend (FastAPI)
+Description=Vibe Coding Studio Backend (FastAPI)
 After=network.target postgresql.service
 
 [Service]

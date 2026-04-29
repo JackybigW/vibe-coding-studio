@@ -98,7 +98,7 @@ export default function LandingPage() {
         "15 daily credits (Up to 25/month)",
         "2GB disk space",
         "Unlimited project sharing",
-        "2 Atoms Cloud projects",
+        "2 Vibe Coding Studio Cloud projects",
       ],
     },
     {
@@ -114,7 +114,7 @@ export default function LandingPage() {
         "Download projects",
         "Edit projects",
         "Credits rollovers",
-        "Unlimited Atoms Cloud projects",
+        "Unlimited Vibe Coding Studio Cloud projects",
         "Custom domain",
       ],
     },
@@ -123,7 +123,7 @@ export default function LandingPage() {
       price: billingPeriod === "annual" ? "$79" : "$100",
       originalPrice: billingPeriod === "annual" ? "$100" : undefined,
       period: "/ month",
-      description: "Full access to the best of Atoms",
+      description: "Full access to the best of Vibe Coding Studio",
       highlighted: true,
       badge: "Recommend",
       features: [
@@ -133,7 +133,7 @@ export default function LandingPage() {
         "Download projects",
         "Edit projects",
         "Credits rollovers",
-        "Unlimited Atoms Cloud projects",
+        "Unlimited Vibe Coding Studio Cloud projects",
         "2x compute resources",
         "Race mode",
         "Custom domain",
@@ -236,9 +236,9 @@ export default function LandingPage() {
           </h1>
 
           <p className="text-lg md:text-xl text-[#A1A1AA] max-w-2xl mx-auto mb-10 leading-relaxed">
-            Atoms is an AI-powered development platform where a team of
-            intelligent agents collaborates to build, test, and deploy your
-            applications — from idea to production in minutes.
+            Vibe Coding Studio is an AI-powered development platform where
+            intelligent agents collaborate to build, test, and deploy your
+            applications from idea to production in minutes.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -304,8 +304,8 @@ export default function LandingPage() {
               </span>
             </h2>
             <p className="text-[#A1A1AA] text-lg max-w-2xl mx-auto">
-              From AI-powered code generation to one-click deployment, Atoms
-              provides a complete development workflow.
+              From AI-powered code generation to one-click deployment, Vibe
+              Coding Studio provides a complete development workflow.
             </p>
           </div>
 
@@ -351,8 +351,8 @@ export default function LandingPage() {
               </span>
             </h2>
             <p className="text-[#A1A1AA] text-lg max-w-2xl mx-auto">
-              Whether you're a solo developer or a growing startup, Atoms scales
-              with your needs.
+              Whether you're a solo developer or a growing startup, Vibe Coding
+              Studio scales with your needs.
             </p>
           </div>
 
@@ -385,7 +385,7 @@ export default function LandingPage() {
               },
               {
                 icon: <Rocket className="w-6 h-6" />,
-                title: "Atoms Cloud",
+                title: "Vibe Coding Studio Cloud",
                 desc: "Built-in backend with auth, database, storage, and edge functions. Zero config needed.",
               },
             ].map((item, i) => (
@@ -499,7 +499,7 @@ export default function LandingPage() {
           </h2>
           <p className="text-[#A1A1AA] text-lg mb-8 max-w-2xl mx-auto">
             Join thousands of developers and teams building the future with
-            Atoms. Start for free, no credit card required.
+            Vibe Coding Studio. Start for free, no credit card required.
           </p>
           <Button
             size="lg"
@@ -530,9 +530,11 @@ export default function LandingPage() {
             <div className="col-span-2 md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#7C3AED] to-[#A855F7] flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">A</span>
+                  <span className="text-white font-bold text-sm">V</span>
                 </div>
-                <span className="text-white font-semibold text-lg">Atoms</span>
+                <span className="text-white font-semibold text-base leading-tight">
+                  Vibe Coding Studio
+                </span>
               </div>
               <p className="text-[#71717A] text-sm">
                 Turn ideas into products that sell
@@ -630,7 +632,7 @@ export default function LandingPage() {
 
           <div className="border-t border-[#27272A] mt-12 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-[#71717A] text-sm">
-              © 2024 Atoms. All rights reserved.
+              © 2024 Vibe Coding Studio. All rights reserved.
             </p>
             <div className="flex items-center gap-4">
               {["X", "LinkedIn", "Discord", "GitHub", "Reddit"].map((social) => (

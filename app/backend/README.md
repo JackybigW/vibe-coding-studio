@@ -1,6 +1,6 @@
 # Backend Development Guide
 
-Atoms Cloud is enabled, use it as the backend service (provides Auth, Database, File Storage, Edge Functions, AI Capabilities).
+Vibe Coding Studio Cloud is enabled, use it as the backend service (provides Auth, Database, File Storage, Edge Functions, AI Capabilities).
 
 ## CRITICAL: DATABASE SETUP MUST BE COMPLETED BEFORE ANY CODE IMPLEMENTATION OR MODIFICATION
 
@@ -83,7 +83,7 @@ When developing a web application with backend capabilities:
 - Read `core/config.py` `settings` for env vars: `settings.stripe_secret_key` reads `STRIPE_SECRET_KEY` dynamically.
 
 ## Table Management Rules
-- IMPORTANT: DO NOT CREATE ANY USER TABLES. User management is FULLY handled by Atoms Cloud's builtin user table.
+- IMPORTANT: DO NOT CREATE ANY USER TABLES. User management is FULLY handled by Vibe Coding Studio Cloud's builtin user table.
 
 ## Privacy / Header UI
 - By default, do NOT display the logged-in user's email/name/userId in the header/top-right area.

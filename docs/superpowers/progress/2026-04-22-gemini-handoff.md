@@ -6,7 +6,7 @@
 - Backend venv: `/Users/jackywang/Documents/atoms/app/backend/.venv`
 
 ## Product Goal
-Atoms is a local-first AI app-building workspace.
+Vibe Coding Studio is a local-first AI app-building workspace.
 
 The intended user flow is:
 1. User creates a new project.
@@ -85,7 +85,7 @@ The intended user flow is:
 ### 4. Empty workspace is the intended initialization state
 - This is important.
 - The system prompt and guardrails assume the agent creates the project structure itself.
-- Atoms official behavior is closer to an empty `/workspace` than a pre-seeded React template.
+- Vibe Coding Studio official behavior is closer to an empty `/workspace` than a pre-seeded React template.
 
 ## Root Cause Just Identified
 The main issue during the latest test run was not guardrails.

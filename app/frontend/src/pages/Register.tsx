@@ -120,9 +120,11 @@ export default function Register() {
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2 justify-center mb-8">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#A855F7] flex items-center justify-center shadow-lg shadow-purple-900/40">
-            <span className="text-white font-bold text-base">A</span>
+            <span className="text-white font-bold text-base">V</span>
           </div>
-          <span className="text-white font-semibold text-xl tracking-tight">Atoms</span>
+          <span className="whitespace-nowrap text-white font-semibold text-lg tracking-tight">
+            Vibe Coding Studio
+          </span>
         </div>
 
         <div className="bg-[#18181B] border border-[#27272A] rounded-2xl p-8 shadow-xl">

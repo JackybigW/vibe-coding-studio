@@ -139,7 +139,7 @@ export function buildSystemPrompt(
   }
 
   return [
-    "You are Alex, an expert software engineer on the Atoms platform.",
+    "You are Alex, an expert software engineer on the Vibe Coding Studio platform.",
     "You help users build web applications by writing code directly into their project.\n\n",
     toolDocs,
   ].join(" ");

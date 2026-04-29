@@ -116,7 +116,7 @@ export default function ArchitecturePage() {
     },
     {
       icon: <Layers className="w-6 h-6" />,
-      title: "Atoms Cloud (BaaS)",
+      title: "Vibe Coding Studio Cloud (BaaS)",
       desc: "Database management, file storage, edge functions, auth integration, API generation",
       effort: "6-8 weeks",
     },
@@ -163,7 +163,7 @@ export default function ArchitecturePage() {
       duration: "Month 6-8",
       items: [
         "Deployment pipeline",
-        "Atoms Cloud (BaaS)",
+        "Vibe Coding Studio Cloud (BaaS)",
         "Custom domains & SSL",
         "Billing & subscriptions",
       ],
@@ -497,9 +497,9 @@ const remix = async (snapshotId) => {
           </h1>
           <p className="text-[#A1A1AA] text-lg max-w-3xl mx-auto leading-relaxed">
             A comprehensive technical blueprint for building an AI-powered
-            development platform like Atoms. This document covers system
-            architecture, frontend interaction design, technology stack, core modules,
-            database design, and a development roadmap.
+            development platform like Vibe Coding Studio. This document covers
+            system architecture, frontend interaction design, technology stack,
+            core modules, database design, and a development roadmap.
           </p>
         </div>
       </section>
@@ -808,7 +808,7 @@ const remix = async (snapshotId) => {
             4. 关键交互模式 & 代码示例
           </h2>
           <p className="text-[#A1A1AA] text-center mb-12 max-w-3xl mx-auto">
-            实现 Atoms 级别交互体验的核心技术方案
+            实现 Vibe Coding Studio 级别交互体验的核心技术方案
           </p>
 
           <div className="grid md:grid-cols-2 gap-6">
@@ -1056,7 +1056,7 @@ const remix = async (snapshotId) => {
           <Cloud className="w-12 h-12 text-[#7C3AED] mx-auto mb-6" />
           <h2 className="text-3xl font-bold mb-4">总结</h2>
           <p className="text-[#A1A1AA] leading-relaxed mb-6">
-            构建一个 Atoms 级别的平台需要在前端交互、后端架构、AI/ML 工程、DevOps 和产品设计方面具备深厚的专业知识。
+            构建一个 Vibe Coding Studio 级别的平台需要在前端交互、后端架构、AI/ML 工程、DevOps 和产品设计方面具备深厚的专业知识。
             核心挑战在于：多 Agent 编排、代码沙箱隔离、实时协作通信、以及可扩展的部署基础设施。
             前端交互的关键在于 WebSocket 实时通信、SSE 流式渲染、iframe 沙箱通信、以及精细的状态管理。
           </p>
@@ -1086,7 +1086,7 @@ const remix = async (snapshotId) => {
       {/* Footer */}
       <footer className="border-t border-[#27272A] py-8 px-6 text-center">
         <p className="text-[#71717A] text-sm">
-          © 2024 Atoms Architecture Document. For reference purposes only.
+          © 2024 Vibe Coding Studio Architecture Document. For reference purposes only.
         </p>
       </footer>
     </div>

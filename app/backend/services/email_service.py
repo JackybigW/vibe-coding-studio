@@ -21,10 +21,10 @@ class EmailService:
         """Send email verification link."""
         verify_url = f"{self._frontend_url}/auth/verify-email?token={token}"
         logger.info("\n" + "="*60 + "\n[DEV] Verification Link for %s:\n%s\n" + "="*60, to_email, verify_url)
-        subject = "Verify your Atoms account"
+        subject = "Verify your Vibe Coding Studio account"
         html = f"""
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-          <h2 style="color:#7C3AED">Welcome to Atoms ⚛️</h2>
+          <h2 style="color:#7C3AED">Welcome to Vibe Coding Studio</h2>
           <p>Click the button below to verify your email address.</p>
           <a href="{verify_url}"
              style="display:inline-block;padding:12px 28px;background:#7C3AED;color:#fff;
@@ -32,7 +32,7 @@ class EmailService:
             Verify Email
           </a>
           <p style="color:#888;font-size:13px">This link expires in 24 hours.<br>
-          If you didn't create an Atoms account, ignore this email.</p>
+          If you didn't create a Vibe Coding Studio account, ignore this email.</p>
         </div>
         """
         await self._send(to_email, subject, html)
@@ -41,11 +41,11 @@ class EmailService:
         """Send password reset link."""
         reset_url = f"{self._frontend_url}/reset-password?token={token}"
         logger.info("\n" + "="*60 + "\n[DEV] Password Reset Link for %s:\n%s\n" + "="*60, to_email, reset_url)
-        subject = "Reset your Atoms password"
+        subject = "Reset your Vibe Coding Studio password"
         html = f"""
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-          <h2 style="color:#7C3AED">Reset your password ⚛️</h2>
-          <p>Click the button below to set a new password for your Atoms account.</p>
+          <h2 style="color:#7C3AED">Reset your password</h2>
+          <p>Click the button below to set a new password for your Vibe Coding Studio account.</p>
           <a href="{reset_url}"
              style="display:inline-block;padding:12px 28px;background:#7C3AED;color:#fff;
                     border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">

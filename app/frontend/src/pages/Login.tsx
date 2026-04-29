@@ -87,14 +87,18 @@ export default function Login() {
         {/* Logo */}
         <div className="flex items-center gap-2 justify-center mb-8">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] to-[#A855F7] flex items-center justify-center shadow-lg shadow-purple-900/40">
-            <span className="text-white font-bold text-base">A</span>
+            <span className="text-white font-bold text-base">V</span>
           </div>
-          <span className="text-white font-semibold text-xl tracking-tight">Atoms</span>
+          <span className="whitespace-nowrap text-white font-semibold text-lg tracking-tight">
+            Vibe Coding Studio
+          </span>
         </div>
 
         <div className="bg-[#18181B] border border-[#27272A] rounded-2xl p-8 shadow-xl">
           <h1 className="text-white text-2xl font-bold mb-1">Welcome back</h1>
-          <p className="text-[#71717A] text-sm mb-6">Sign in to your Atoms account</p>
+          <p className="text-[#71717A] text-sm mb-6">
+            Sign in to your Vibe Coding Studio account
+          </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

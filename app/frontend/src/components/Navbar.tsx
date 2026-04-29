@@ -56,11 +56,13 @@ export default function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2">
+        <Link to="/" className="flex min-w-0 items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#7C3AED] to-[#A855F7] flex items-center justify-center">
-            <span className="text-white font-bold text-sm">A</span>
+            <span className="text-white font-bold text-sm">V</span>
           </div>
-          <span className="text-white font-semibold text-xl">Atoms</span>
+          <span className="whitespace-nowrap text-white font-semibold text-base sm:text-lg">
+            Vibe Coding Studio
+          </span>
         </Link>
 
         {/* Desktop Nav */}

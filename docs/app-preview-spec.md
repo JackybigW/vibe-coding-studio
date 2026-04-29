@@ -1,7 +1,7 @@
-# Atoms App Preview — Technical Spec
+# Vibe Coding Studio App Preview — Technical Spec
 
 > Version: 1.0 | Date: 2026-04-22
-> Purpose: Reference spec for implementing the Atoms-style App Preview system. Your agent should use this document as the single source of truth.
+> Purpose: Reference spec for implementing the Vibe Coding Studio-style App Preview system. Your agent should use this document as the single source of truth.
 
 ---
 
@@ -736,7 +736,7 @@ async def cleanup_idle_servers():
 
 ## 10. Key Differences from Current Implementation
 
-| Aspect | Current (buildPreviewHtml) | Atoms Approach |
+| Aspect | Current (buildPreviewHtml) | Vibe Coding Studio Approach |
 |--------|---------------------------|----------------|
 | Compilation | Babel standalone in browser | Vite dev server on backend |
 | Module resolution | Imports stripped | Full node_modules support |

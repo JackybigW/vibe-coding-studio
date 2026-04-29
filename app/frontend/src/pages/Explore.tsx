@@ -74,7 +74,7 @@ const FEATURED_PROJECTS = [
     stars: 156,
     views: 1234,
     thumbnail: "https://mgx-backend-cdn.metadl.com/generate/images/1069105/2026-03-29/0d145037-f933-4d82-9977-95054238f44a.png",
-    tags: ["React", "Stripe", "Atoms Cloud"],
+    tags: ["React", "Stripe", "Vibe Coding Studio Cloud"],
   },
   {
     id: 5,
@@ -128,8 +128,8 @@ export default function ExplorePage() {
             </span>
           </h1>
           <p className="text-[#A1A1AA] max-w-lg mx-auto">
-            Discover amazing projects built by the Atoms community. Remix any
-            project to make it your own.
+            Discover amazing projects built by the Vibe Coding Studio
+            community. Remix any project to make it your own.
           </p>
         </div>
 

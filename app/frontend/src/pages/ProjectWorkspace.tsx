@@ -218,7 +218,7 @@ export function WorkspaceInner() {
           });
           setPublishUrl(
             (data.deploy_url as string) ||
-              `atoms.dev/${(data.name as string)
+              `vibe-coding.studio/${(data.name as string)
                 ?.toLowerCase()
                 .replace(/\s+/g, "-")}`
           );

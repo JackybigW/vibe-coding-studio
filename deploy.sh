@@ -108,7 +108,7 @@ rsync -az --delete \
 ok "文件同步完成"
 
 ssh "$SERVER" "
-  git config --global user.email 'jackywang@atoms.dev' 2>/dev/null
+  git config --global user.email 'jackywang@vibe-coding.studio' 2>/dev/null
   git config --global user.name 'Jacky Wang' 2>/dev/null
   git config --global --add safe.directory $SERVER_PATH 2>/dev/null
   cd $SERVER_PATH

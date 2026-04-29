@@ -38,7 +38,7 @@ class PlaceholderHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         body = b"""<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>Atoms Preview</title></head>
+<head><meta charset="utf-8"><title>Vibe Coding Studio Preview</title></head>
 <body><h1>Preview is ready</h1><p>Add a frontend package.json to replace this placeholder.</p></body>
 </html>
 """

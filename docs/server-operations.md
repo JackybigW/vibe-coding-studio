@@ -23,7 +23,7 @@ Generate `/etc/clash/config.yaml` from that subscription before restarting
 Clash. Keep the `Auto` url-test group enabled so the server can choose a
 working node automatically.
 
-Atoms production constrains Clash outbound traffic to non-direct Singapore,
+Vibe Coding Studio production constrains Clash outbound traffic to non-direct Singapore,
 Japan, Taiwan, United States, and Korea nodes. Apply the policy after updating
 the subscription config:
 

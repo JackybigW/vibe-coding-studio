@@ -6,12 +6,12 @@ Branch: `feature/leader-engineer-realtime-orchestration`
 
 ## Summary
 
-Atoms should split realtime behavior into two distinct planes:
+Vibe Coding Studio should split realtime behavior into two distinct planes:
 
 - a **control plane** for the platform-owned SWE session, progress, terminal summaries, file updates, and stop/cancel
 - an **app plane** for the generated SaaS app running inside App Viewer
 
-For this iteration, Atoms should **not** introduce a separate `leader` agent yet.
+For this iteration, Vibe Coding Studio should **not** introduce a separate `leader` agent yet.
 
 The recommended staged design is:
 
@@ -190,7 +190,7 @@ Decision:
 
 ## 1. Two Plane Architecture
 
-Atoms should explicitly separate:
+Vibe Coding Studio should explicitly separate:
 
 - **Control Plane**
   - engineer chat stream
@@ -527,7 +527,7 @@ These tradeoffs are acceptable because they map cleanly to the real product mode
 
 ## Decision
 
-Implement Atoms as a **dual-plane realtime system**:
+Implement Vibe Coding Studio as a **dual-plane realtime system**:
 
 - **control plane**: WebSocket for engineer chat streaming, progress, stop, terminal summaries, and live workspace updates
 - **app plane**: existing same-origin preview gateway for the generated app, including WebSocket pass-through when the app itself needs it

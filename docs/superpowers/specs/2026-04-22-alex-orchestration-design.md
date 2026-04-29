@@ -6,7 +6,7 @@ Branch: `main`
 
 ## Summary
 
-Atoms should introduce a lightweight orchestration layer for the user-facing `engineer` agent without rewriting the existing runtime foundation.
+Vibe Coding Studio should introduce a lightweight orchestration layer for the user-facing `engineer` agent without rewriting the existing runtime foundation.
 
 This design adds five tightly scoped components:
 
@@ -14,20 +14,20 @@ This design adds five tightly scoped components:
 - a `draft_plan` approval gate for new implementation requests and feature expansions
 - a two-layer execution system composed of `implementation plan + todo + persistent task store`
 - runtime path guardrails that restrict where the engineer can write
-- on-demand skill loading so the system prompt stays close to the original Atoms prompt instead of becoming a giant instruction dump
+- on-demand skill loading so the system prompt stays close to the original Vibe Coding Studio prompt instead of becoming a giant instruction dump
 
 This iteration intentionally does **not** redesign long-term agent memory. Normal chat/message history remains unchanged. The `draft_plan` artifact is short-lived in runtime memory, while `implementation plan` and `todo` are persisted as files and the task graph is persisted in a backend-owned store.
 
 ## Problem Statement
 
-The current engineer runtime can execute tools, write files, and bring up preview, but it still lacks the orchestration discipline that the original Atoms prompt assumes.
+The current engineer runtime can execute tools, write files, and bring up preview, but it still lacks the orchestration discipline that the original Vibe Coding Studio prompt assumes.
 
 Current gaps:
 
 - the engineer does not have a required bootstrap sequence before implementation
 - there is no true `draft_plan` approval gate between user request and code generation
 - planning and execution state are mixed together instead of split into user-visible scope, agent execution plan, short-term todo state, and persistent task state
-- runtime path protections are not strong enough to encode the original Atoms protected-path model
+- runtime path protections are not strong enough to encode the original Vibe Coding Studio protected-path model
 - skill knowledge is available in files, but there is no dedicated progressive-disclosure mechanism for loading them on demand
 - the current prompt and runtime can therefore drift into premature implementation, incorrect file placement, or unnecessary context bloat
 
@@ -40,7 +40,7 @@ As a result:
 
 ## Goals
 
-- Preserve the original Atoms engineer personality and workflow as much as possible.
+- Preserve the original Vibe Coding Studio engineer personality and workflow as much as possible.
 - Add a real `draft_plan` tool for implementation requests and feature additions.
 - Keep `draft_plan` short and approval-oriented.
 - Require user approval in the left chat UI before implementation begins.
@@ -54,14 +54,14 @@ As a result:
 
 - Redesign message history storage.
 - Build long-term semantic memory for the engineer.
-- Recreate all original Atoms platform tools such as `BackendManager`, `ImageCreator`, or `CheckUI`.
+- Recreate all original Vibe Coding Studio platform tools such as `BackendManager`, `ImageCreator`, or `CheckUI`.
 - Replace the existing realtime transport or preview architecture.
 - Introduce a separate `leader` agent in this iteration.
 - Fully solve template lifecycle automation in this iteration.
 
 ## Current Findings
 
-### 1. The original Atoms prompt assumes an orchestration system, not just a raw coding agent
+### 1. The original Vibe Coding Studio prompt assumes an orchestration system, not just a raw coding agent
 
 Relevant file:
 
@@ -116,7 +116,7 @@ Important takeaways:
 - `s03` shows that todo state should be explicit, structured, and visible during execution
 - `s07` shows that execution state should live outside the chat transcript so it survives interruption and context loss
 
-These patterns map cleanly onto the missing orchestration pieces in Atoms.
+These patterns map cleanly onto the missing orchestration pieces in Vibe Coding Studio.
 
 ## Recommended Design
 
@@ -261,7 +261,7 @@ This keeps it separate from user-visible chat and from short-lived todo state.
 
 ### Relationship to the superpowers writing-plans skill
 
-Atoms should borrow the **structure and rigor** of `writing-plans`, but not treat it as identical to `draft_plan`.
+Vibe Coding Studio should borrow the **structure and rigor** of `writing-plans`, but not treat it as identical to `draft_plan`.
 
 The implementation-plan writer should preserve these ideas:
 
@@ -270,7 +270,7 @@ The implementation-plan writer should preserve these ideas:
 - concrete execution details
 - no placeholders
 
-But it should be adapted for Atoms:
+But it should be adapted for Vibe Coding Studio:
 
 - location under the project `docs/` tree
 - focus on what the engineer needs to execute inside this workspace
@@ -361,7 +361,7 @@ The requirement is architectural:
 - task state must live **outside** the conversational transcript
 - the runtime must be able to reload it after interruption
 
-Because Atoms already has backend services and persistence, the recommended implementation direction is a backend-owned store rather than plain `.tasks/*.json` files.
+Because Vibe Coding Studio already has backend services and persistence, the recommended implementation direction is a backend-owned store rather than plain `.tasks/*.json` files.
 
 ### Relationship to todo
 
@@ -372,7 +372,7 @@ They should stay synchronized, but they are not the same layer.
 
 ## 6. Path Guardrails
 
-The original Atoms prompt assumes protected paths. Atoms should enforce them in runtime, not just describe them in text.
+The original Vibe Coding Studio prompt assumes protected paths. Vibe Coding Studio should enforce them in runtime, not just describe them in text.
 
 ### Protected paths
 
@@ -414,7 +414,7 @@ This prevents silent scope jumps from chat into code generation.
 
 ## 7. Skill Loading
 
-Atoms should adopt the `s05` progressive-disclosure pattern.
+Vibe Coding Studio should adopt the `s05` progressive-disclosure pattern.
 
 ### Layer 1: skill index in the system prompt
 
@@ -443,11 +443,11 @@ Recommended first-class skills/docs:
 
 ### Why this matters
 
-This keeps the prompt closer to the original Atoms prompt while still giving the engineer access to full project-specific instructions when needed.
+This keeps the prompt closer to the original Vibe Coding Studio prompt while still giving the engineer access to full project-specific instructions when needed.
 
 ## 8. System Prompt Minimal Revision
 
-Atoms should keep the original system prompt mostly intact and only adapt the parts that depend on the new orchestration layer.
+Vibe Coding Studio should keep the original system prompt mostly intact and only adapt the parts that depend on the new orchestration layer.
 
 ### Preserve
 
@@ -476,7 +476,7 @@ The prompt should be minimally revised so that:
 Do not solve in this prompt revision:
 
 - long-term memory design
-- complete recreation of all original Atoms platform tools
+- complete recreation of all original Vibe Coding Studio platform tools
 - template orchestration beyond what the current runtime actually supports
 
 ## End-to-End Flow
@@ -538,4 +538,4 @@ Implement this orchestration layer in the following order:
 4. skill loading
 5. minimal system-prompt revision
 
-This order preserves the current runtime while adding the minimum orchestration structure needed to make Alex behave much more like the original Atoms engineer workflow.
+This order preserves the current runtime while adding the minimum orchestration structure needed to make Alex behave much more like the original Vibe Coding Studio engineer workflow.
