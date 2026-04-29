@@ -130,43 +130,6 @@ async def query_project_filess(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.get("/all", response_model=Project_filesListResponse)
-async def query_project_filess_all(
-    query: str = Query(None, description="Query conditions (JSON string)"),
-    sort: str = Query(None, description="Sort field (prefix with '-' for descending)"),
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(20, ge=1, le=2000, description="Max number of records to return"),
-    fields: str = Query(None, description="Comma-separated list of fields to return"),
-    db: AsyncSession = Depends(get_db),
-):
-    # Query project_filess with filtering, sorting, and pagination without user limitation
-    logger.debug(f"Querying project_filess: query={query}, sort={sort}, skip={skip}, limit={limit}, fields={fields}")
-
-    service = Project_filesService(db)
-    try:
-        # Parse query JSON if provided
-        query_dict = None
-        if query:
-            try:
-                query_dict = json.loads(query)
-            except json.JSONDecodeError:
-                raise HTTPException(status_code=400, detail="Invalid query JSON format")
-
-        result = await service.get_list(
-            skip=skip,
-            limit=limit,
-            query_dict=query_dict,
-            sort=sort
-        )
-        logger.debug(f"Found {result['total']} project_filess")
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error querying project_filess: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-
 @router.get("/{id}", response_model=Project_filesResponse)
 async def get_project_files(
     id: int,

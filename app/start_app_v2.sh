@@ -1219,7 +1219,6 @@ main() {
     log_info "Pre-installing frontend dependencies..."
     cd "$FRONTEND_DIR"
     $PACKAGE_MANAGER install
-    $PACKAGE_MANAGER install @metagptx/web-sdk@latest
     log_success "Frontend dependencies installed successfully"
     
     cd "$BACKEND_DIR"

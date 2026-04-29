@@ -713,7 +713,9 @@ describe("ChatPanel", () => {
     }
   );
 
-  it("commits the final assistant reply when session.state arrives before message_done on a normal run", async () => {
+  it.each(["completed", "failed"] as const)(
+    "commits the final assistant reply when session.state=%s arrives before message_done on a normal run",
+    async (status) => {
     render(
       <WorkspaceProvider>
         <WorkspaceHarness>
@@ -750,7 +752,7 @@ describe("ChatPanel", () => {
       const renderedBeforeSessionState = partialBubble.textContent;
 
       act(() => {
-        realtimeHarness.onEvent?.({ type: "session.state", status: "completed" });
+        realtimeHarness.onEvent?.({ type: "session.state", status });
       });
 
       expect(

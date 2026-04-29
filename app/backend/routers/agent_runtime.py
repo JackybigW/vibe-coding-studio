@@ -6,13 +6,14 @@ from pathlib import Path
 from typing import AsyncGenerator
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from openmanus_runtime.schema import Message
 from openmanus_runtime.streaming import StreamingSWEAgent, build_agent_llm
 from schemas.agent_runtime import AgentRunRequest
 from services.engineer_runtime import run_engineer_session
 from services.preview_contract import load_preview_contract
 from services.preview_sessions import build_preview_urls, new_preview_session_fields
+from services.projects import ProjectsService
 from services.project_workspace import ProjectWorkspaceService
 from services.sandbox_runtime import SandboxRuntimeService
 from services.workspace_runtime_sessions import WorkspaceRuntimeSessionsService
@@ -77,6 +78,9 @@ async def run_agent(
         request.model,
         len(request.prompt or ""),
     )
+    project = await ProjectsService(db).get_by_id(request.project_id, user_id=str(current_user.id))
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
 
     async def emit(event: dict) -> None:
         event_with_trace = {"trace_id": trace_id, **event}

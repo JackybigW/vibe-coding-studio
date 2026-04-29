@@ -43,7 +43,7 @@ When developing a web application with backend capabilities:
   - json-schema will automatically generate the relevant code files and save them under `backend/models`, `backend/routes`, and `backend/services`. Don't use Editor.write to update these auto-generated files unless it is necessary.
 - Generate the mock data for the necessary tables (data model) using BackendManager.insert_table_data if database table data not exists.
 - For Datetime fields like created_at or updated_at, Don't ignore their value assignment using `datetime.now()` in backend, MUST not use 'str' type.
-- Use metagptx/web-sdk@latest to develop frontend code to fetch backend data. And no need to generate mock data in the frontend.
+- Use the project-pinned `@metagptx/web-sdk` to develop frontend code to fetch backend data. And no need to generate mock data in the frontend.
 - When generating code, ensure that UI state updates correctly after user actions — e.g., clear the cart after payment, and update cart item count after adding a product.
 - When dealing images, videos or files in photo albums, media libraries, asset management scenario, refs to ObjectStorage Integration to use endpoints and should fully implement them.
 

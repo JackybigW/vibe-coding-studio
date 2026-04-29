@@ -106,6 +106,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const activeAssistantAgentRef = useRef("engineer");
   const ignoreAssistantEventsRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const terminalSessionStatusRef = useRef<"completed" | "failed" | null>(null);
   const bootstrapAbortControllerRef = useRef<AbortController | null>(null);
   const sessionGenerationRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -336,6 +337,10 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
           // Empty message — clear buffer but stay loading.
           resetActiveAssistantState();
         }
+        if (terminalSessionStatusRef.current) {
+          terminalSessionStatusRef.current = null;
+          settleStreamingState();
+        }
         return;
       }
 
@@ -346,6 +351,16 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       }
 
       if (event.type === "session.state" && (event.status === "completed" || event.status === "failed")) {
+        if (ignoreAssistantEventsRef.current) {
+          terminalSessionStatusRef.current = null;
+          settleStreamingState();
+          return;
+        }
+        if (activeAssistantRawRef.current.trim()) {
+          terminalSessionStatusRef.current = event.status;
+          return;
+        }
+        terminalSessionStatusRef.current = null;
         settleStreamingState();
         return;
       }
@@ -393,6 +408,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
       sessionRef.current?.close();
       sessionRef.current = null;
       ignoreAssistantEventsRef.current = false;
+      terminalSessionStatusRef.current = null;
       stopTypingLoop();
       activeAssistantAgentRef.current = "engineer";
       activeAssistantRawRef.current = "";
@@ -493,6 +509,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
     clearDraftPlan();
     sessionRef.current?.stopRun();
     ignoreAssistantEventsRef.current = true;
+    terminalSessionStatusRef.current = null;
     stopTypingLoop();
     setIsLoading(false);
     setIsStreaming(false);

@@ -64,6 +64,19 @@ class _FakeResult:
         return self._items
 
 
+class _OwnedProjectService:
+    def __init__(self, db):
+        pass
+
+    async def get_by_id(self, project_id, user_id=None):
+        return type("Project", (), {"id": project_id})()
+
+
+@pytest.fixture(autouse=True)
+def allow_owned_project(monkeypatch):
+    monkeypatch.setattr("routers.agent_runtime.ProjectsService", _OwnedProjectService)
+
+
 def test_agent_run_sse_stream(monkeypatch):
     monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", FakeAgent)
     monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
@@ -115,6 +128,51 @@ def test_agent_run_sse_stream(monkeypatch):
     session_line = next(line for line in body.splitlines() if line.startswith("data: ") and '"type": "session"' in line)
     session_payload = json.loads(session_line.removeprefix("data: "))
     assert session_payload["trace_id"] == done_payload["trace_id"]
+
+
+def test_agent_run_rejects_project_not_owned(monkeypatch):
+    run_called = False
+
+    class MissingProjectService:
+        def __init__(self, db):
+            pass
+
+        async def get_by_id(self, project_id, user_id=None):
+            return None
+
+    async def fake_run_engineer_session(*args, **kwargs):
+        nonlocal run_called
+        run_called = True
+        return True
+
+    monkeypatch.setattr("routers.agent_runtime.ProjectsService", MissingProjectService)
+    monkeypatch.setattr("routers.agent_runtime.run_engineer_session", fake_run_engineer_session)
+
+    fake_user = UserResponse(id="user-1", email="test@example.com", name="Test", role="user")
+
+    app = FastAPI()
+    app.include_router(router)
+
+    from dependencies.auth import get_current_user
+    from core.database import get_db
+
+    async def fake_get_current_user():
+        return fake_user
+
+    async def fake_get_db():
+        yield FakeDB()
+
+    app.dependency_overrides[get_current_user] = fake_get_current_user
+    app.dependency_overrides[get_db] = fake_get_db
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/agent/run",
+            json={"prompt": "build a todo app", "project_id": 999},
+        )
+
+    assert response.status_code == 404
+    assert run_called is False
 
 
 def test_serialize_agent_history_includes_thinking_and_tool_messages():

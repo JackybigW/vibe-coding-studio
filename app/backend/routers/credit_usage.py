@@ -124,43 +124,6 @@ async def query_credit_usages(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.get("/all", response_model=Credit_usageListResponse)
-async def query_credit_usages_all(
-    query: str = Query(None, description="Query conditions (JSON string)"),
-    sort: str = Query(None, description="Sort field (prefix with '-' for descending)"),
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(20, ge=1, le=2000, description="Max number of records to return"),
-    fields: str = Query(None, description="Comma-separated list of fields to return"),
-    db: AsyncSession = Depends(get_db),
-):
-    # Query credit_usages with filtering, sorting, and pagination without user limitation
-    logger.debug(f"Querying credit_usages: query={query}, sort={sort}, skip={skip}, limit={limit}, fields={fields}")
-
-    service = Credit_usageService(db)
-    try:
-        # Parse query JSON if provided
-        query_dict = None
-        if query:
-            try:
-                query_dict = json.loads(query)
-            except json.JSONDecodeError:
-                raise HTTPException(status_code=400, detail="Invalid query JSON format")
-
-        result = await service.get_list(
-            skip=skip,
-            limit=limit,
-            query_dict=query_dict,
-            sort=sort
-        )
-        logger.debug(f"Found {result['total']} credit_usages")
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error querying credit_usages: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-
 @router.get("/{id}", response_model=Credit_usageResponse)
 async def get_credit_usage(
     id: int,

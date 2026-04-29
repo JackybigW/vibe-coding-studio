@@ -9,7 +9,7 @@ Backend custom API development with FastAPI. Covers service logic implementation
 - Implement the service logic of custom functions under `./app/backend/services/`
 - Define api endpoint routing and implement it under `./app/backend/routers/`. Import the necessary ORM files under `./app/backend/models/` and the necessary logic files under `./app/backend/services/`
 - Since automatic routing has been added, there is no need to add api route manually
-- Frontend perform Custom API Integration using metagptx/web-sdk@latest based on the defined api endpoint routing
+- Frontend perform Custom API Integration using the project-pinned `@metagptx/web-sdk` based on the defined api endpoint routing
 - To obtain environment variables from os environ, must use like `import os\nstripe_key = os.environ.get("STRIPE_SECRET_KEY")  # Pay attention to capitalization
 - If installed new backend packages, append them to the `./app/backend/requirements.txt`
 - Follow the existing backend import conventions used by nearby router files. For database/auth dependencies, use `from core.database import get_db` and `from dependencies.auth import get_current_user` (or `get_admin_user`) as appropriate.
@@ -115,4 +115,3 @@ async def verify_payment(
         logging.error(f"Payment verification error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to verify payment, error: {str(e)}")
 ```
-

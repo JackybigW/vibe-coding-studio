@@ -1066,6 +1066,15 @@ def _make_app_with_fake_deps(monkeypatch, fake_agent_cls=None):
         monkeypatch.setattr("routers.agent_runtime.StreamingSWEAgent", fake_agent_cls)
     monkeypatch.setattr("routers.agent_runtime.build_agent_llm", lambda model: None)
 
+    class _OwnedProjectService:
+        def __init__(self, db):
+            pass
+
+        async def get_by_id(self, project_id, user_id=None):
+            return type("Project", (), {"id": project_id})()
+
+    monkeypatch.setattr("routers.agent_runtime.ProjectsService", _OwnedProjectService)
+
     app = FastAPI()
     app.include_router(router)
 

@@ -218,8 +218,8 @@ async def callback(
             }
         )
 
-        redirect_url = f"{frontend_url}/auth/callback?{fragment}"
-        logger.info("[callback] OIDC callback successful, redirecting to %s", redirect_url)
+        redirect_url = f"{frontend_url}/auth/callback#{fragment}"
+        logger.info("[callback] OIDC callback successful, redirecting to frontend callback")
         redirect_response = RedirectResponse(
             url=redirect_url,
             status_code=status.HTTP_302_FOUND,
