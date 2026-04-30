@@ -10,12 +10,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, Menu, X, Coins, LogOut, User, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import LanguageToggle from "@/components/LanguageToggle";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { user, isLoading, isAuthenticated, logout } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -75,7 +78,7 @@ export default function Navbar() {
                 : "text-[#A1A1AA] hover:text-white"
             }`}
           >
-            Home
+            {t("nav.home")}
           </Link>
 
           {isAuthenticated && (
@@ -87,7 +90,7 @@ export default function Navbar() {
                   : "text-[#A1A1AA] hover:text-white"
               }`}
             >
-              Dashboard
+              {t("nav.dashboard")}
             </Link>
           )}
 
@@ -99,7 +102,7 @@ export default function Navbar() {
                 : "text-[#A1A1AA] hover:text-white"
             }`}
           >
-            Explore
+            {t("nav.explore")}
           </Link>
 
           <button
@@ -110,27 +113,27 @@ export default function Navbar() {
             }}
             className="px-4 py-2 text-sm rounded-lg transition-colors text-[#A1A1AA] hover:text-white"
           >
-            Pricing
+            {t("nav.pricing")}
           </button>
 
           <DropdownMenu>
             <DropdownMenuTrigger className="px-4 py-2 text-sm rounded-lg transition-colors text-[#A1A1AA] hover:text-white flex items-center gap-1 outline-none">
-              Resources <ChevronDown className="w-3 h-3" />
+              {t("nav.resources")} <ChevronDown className="w-3 h-3" />
             </DropdownMenuTrigger>
             <DropdownMenuContent className="bg-[#18181B] border-[#27272A]">
               <DropdownMenuItem asChild>
                 <Link to="/workspace" className="text-[#FAFAFA] cursor-pointer">
-                  Workspace Demo
+                  {t("nav.workspaceDemo")}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to="/architecture" className="text-[#FAFAFA] cursor-pointer">
-                  Architecture
+                  {t("nav.architecture")}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to="/settings" className="text-[#FAFAFA] cursor-pointer">
-                  Settings
+                  {t("nav.settings")}
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -139,6 +142,7 @@ export default function Navbar() {
 
         {/* Right Side: Auth Area */}
         <div className="hidden md:flex items-center gap-3">
+          <LanguageToggle />
           {isLoading ? (
             <Loader2 className="w-5 h-5 text-[#A1A1AA] animate-spin" />
           ) : isAuthenticated && user ? (
@@ -197,14 +201,14 @@ export default function Navbar() {
                       </span>
                       <span className="text-xs text-[#A1A1AA] flex items-center gap-1">
                         <Coins className="w-3 h-3 text-amber-400" />
-                        {user.credits} credits
+                        {user.credits} {t("nav.credits")}
                       </span>
                     </div>
                   </div>
                   <DropdownMenuSeparator className="bg-[#27272A]" />
                   <DropdownMenuItem className="text-[#FAFAFA] cursor-pointer focus:bg-[#27272A]">
                     <User className="w-4 h-4 mr-2" />
-                    Profile
+                    {t("nav.profile")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-[#27272A]" />
                   <DropdownMenuItem
@@ -212,7 +216,7 @@ export default function Navbar() {
                     onClick={logout}
                   >
                     <LogOut className="w-4 h-4 mr-2" />
-                    Log out
+                    {t("nav.logout")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -224,13 +228,13 @@ export default function Navbar() {
                 className="text-[#A1A1AA] hover:text-white hover:bg-[#27272A]"
                 onClick={() => navigate("/login")}
               >
-                Log in
+                {t("nav.login")}
               </Button>
               <Button
                 className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white hover:opacity-90 border-0"
                 onClick={() => navigate("/register")}
               >
-                Sign up
+                {t("nav.signup")}
               </Button>
             </>
           )}
@@ -240,6 +244,7 @@ export default function Navbar() {
         <button
           className="md:hidden text-white"
           onClick={() => setMobileOpen(!mobileOpen)}
+          aria-label={mobileOpen ? "Close menu" : "Open menu"}
         >
           {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
@@ -253,7 +258,7 @@ export default function Navbar() {
             className="block py-2 text-[#A1A1AA] hover:text-white"
             onClick={() => setMobileOpen(false)}
           >
-            Home
+            {t("nav.home")}
           </Link>
           <button
             onClick={() => {
@@ -263,22 +268,25 @@ export default function Navbar() {
             }}
             className="block py-2 text-[#A1A1AA] hover:text-white w-full text-left"
           >
-            Pricing
+            {t("nav.pricing")}
           </button>
           <Link
             to="/workspace"
             className="block py-2 text-[#A1A1AA] hover:text-white"
             onClick={() => setMobileOpen(false)}
           >
-            Workspace Demo
+            {t("nav.workspaceDemo")}
           </Link>
           <Link
             to="/architecture"
             className="block py-2 text-[#A1A1AA] hover:text-white"
             onClick={() => setMobileOpen(false)}
           >
-            Architecture
+            {t("nav.architecture")}
           </Link>
+          <div className="py-2">
+            <LanguageToggle />
+          </div>
 
           {/* Mobile Auth Section */}
           {isAuthenticated && user ? (
@@ -323,7 +331,7 @@ export default function Navbar() {
                 }}
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                Log out
+                {t("nav.logout")}
               </Button>
             </div>
           ) : (
@@ -333,13 +341,13 @@ export default function Navbar() {
                 className="text-[#A1A1AA] hover:text-white hover:bg-[#27272A] flex-1"
                 onClick={() => { setMobileOpen(false); navigate("/login"); }}
               >
-                Log in
+                {t("nav.login")}
               </Button>
               <Button
                 className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white flex-1"
                 onClick={() => { setMobileOpen(false); navigate("/register"); }}
               >
-                Sign up
+                {t("nav.signup")}
               </Button>
             </div>
           )}

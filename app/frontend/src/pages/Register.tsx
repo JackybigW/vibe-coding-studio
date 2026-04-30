@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { client } from "@/lib/api";
 import { authApi } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 export default function Register() {
   const navigate = useNavigate();
   const { login } = useAuth();
+  const { t } = useLanguage();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -62,11 +64,11 @@ export default function Register() {
     e.preventDefault();
     setError("");
     if (password !== confirm) {
-      setError("Passwords do not match.");
+      setError(t("auth.passwordsMismatch"));
       return;
     }
     if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+      setError(t("auth.passwordTooShort"));
       return;
     }
     setLoading(true);
@@ -79,7 +81,7 @@ export default function Register() {
       if (res?.data?.detail) throw new Error(res.data.detail);
       setDone(true);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Registration failed"));
+      setError(getErrorMessage(err, t("auth.registrationFailed")));
     } finally {
       setLoading(false);
     }
@@ -91,7 +93,7 @@ export default function Register() {
     try {
       await login();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Google sign in failed"));
+      setError(getErrorMessage(err, t("auth.googleFailed")));
     } finally {
       setIsGoogleLoading(false);
     }
@@ -102,13 +104,13 @@ export default function Register() {
       <div className="min-h-screen bg-[#09090B] flex items-center justify-center px-4">
         <div className="w-full max-w-sm text-center">
           <div className="text-5xl mb-4">📬</div>
-          <h1 className="text-white text-2xl font-bold mb-2">Check your inbox</h1>
+          <h1 className="text-white text-2xl font-bold mb-2">{t("auth.checkInbox")}</h1>
           <p className="text-[#A1A1AA] text-sm mb-6">
-            We sent a verification link to <span className="text-white font-medium">{email}</span>.<br />
-            Click it to activate your account.
+            {t("auth.verificationEmailSent")} <span className="text-white font-medium">{email}</span>.<br />
+            {t("auth.activateAccount")}
           </p>
           <Link to="/login" className="text-[#7C3AED] hover:text-[#A855F7] transition-colors text-sm font-medium">
-            Back to sign in →
+            {t("auth.backToSignIn")}
           </Link>
         </div>
       </div>
@@ -128,13 +130,13 @@ export default function Register() {
         </div>
 
         <div className="bg-[#18181B] border border-[#27272A] rounded-2xl p-8 shadow-xl">
-          <h1 className="text-white text-2xl font-bold mb-1">Create an account</h1>
-          <p className="text-[#71717A] text-sm mb-6">Start building with AI for free</p>
+          <h1 className="text-white text-2xl font-bold mb-1">{t("auth.createAccountTitle")}</h1>
+          <p className="text-[#71717A] text-sm mb-6">{t("auth.registerSubtitle")}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="reg-name" className="block text-sm font-medium text-[#A1A1AA] mb-1.5">
-                Name <span className="text-[#52525B]">(optional)</span>
+                {t("auth.name")} <span className="text-[#52525B]">{t("auth.optional")}</span>
               </label>
               <input
                 id="reg-name"
@@ -149,7 +151,7 @@ export default function Register() {
 
             <div>
               <label htmlFor="reg-email" className="block text-sm font-medium text-[#A1A1AA] mb-1.5">
-                Email
+                {t("auth.email")}
               </label>
               <input
                 id="reg-email"
@@ -165,7 +167,7 @@ export default function Register() {
 
             <div>
               <label htmlFor="reg-password" className="block text-sm font-medium text-[#A1A1AA] mb-1.5">
-                Password
+                {t("auth.password")}
               </label>
               <input
                 id="reg-password"
@@ -174,14 +176,14 @@ export default function Register() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Min. 8 characters"
+                placeholder={t("auth.passwordPlaceholder")}
                 className="w-full bg-[#09090B] border border-[#3F3F46] rounded-lg px-3.5 py-2.5 text-white text-sm placeholder-[#52525B] focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] transition-colors"
               />
             </div>
 
             <div>
               <label htmlFor="reg-confirm" className="block text-sm font-medium text-[#A1A1AA] mb-1.5">
-                Confirm password
+                {t("auth.confirmPassword")}
               </label>
               <input
                 id="reg-confirm"
@@ -190,7 +192,7 @@ export default function Register() {
                 required
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                placeholder="Repeat password"
+                placeholder={t("auth.confirmPasswordPlaceholder")}
                 className="w-full bg-[#09090B] border border-[#3F3F46] rounded-lg px-3.5 py-2.5 text-white text-sm placeholder-[#52525B] focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] transition-colors"
               />
             </div>
@@ -207,14 +209,14 @@ export default function Register() {
               disabled={loading}
               className="w-full bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white font-semibold py-2.5 rounded-lg text-sm hover:opacity-90 disabled:opacity-50 transition-opacity shadow-lg shadow-purple-900/30"
             >
-              {loading ? "Creating account…" : "Create account"}
+              {loading ? t("auth.creatingAccount") : t("auth.createAccount")}
             </button>
           </form>
 
           <div className="my-6 flex items-center gap-3">
             <div className="h-px flex-1 bg-[#27272A]" />
             <span className="text-xs uppercase tracking-[0.24em] text-[#52525B]">
-              Or continue with
+              {t("auth.orContinueWith")}
             </span>
             <div className="h-px flex-1 bg-[#27272A]" />
           </div>
@@ -229,26 +231,26 @@ export default function Register() {
             {isCheckingGoogle || isGoogleLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {isCheckingGoogle ? "Checking Google sign-in…" : "Redirecting…"}
+                {isCheckingGoogle ? t("auth.checkingGoogle") : t("auth.redirecting")}
               </>
             ) : (
               <>
                 <GoogleLogo />
-                Continue with Google
+                {t("auth.continueWithGoogle")}
               </>
             )}
           </Button>
 
           {!isCheckingGoogle && !isGoogleEnabled && (
             <p className="mt-3 text-center text-xs text-[#71717A]">
-              Google sign-in is not configured in this environment yet.
+              {t("auth.googleUnavailable")}
             </p>
           )}
 
           <p className="text-center text-sm text-[#71717A] mt-6">
-            Already have an account?{" "}
+            {t("auth.alreadyHaveAccount")}{" "}
             <Link to="/login" className="text-[#A855F7] hover:text-white transition-colors font-medium">
-              Sign in
+              {t("auth.signIn")}
             </Link>
           </p>
         </div>

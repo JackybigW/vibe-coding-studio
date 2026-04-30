@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import PricingCard from "@/components/PricingCard";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { client } from "@/lib/api";
 import {
   Accordion,
@@ -35,6 +36,7 @@ const FEATURE_DEPLOY = "https://mgx-backend-cdn.metadl.com/generate/images/10691
 export default function LandingPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { t } = useLanguage();
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("annual");
   const [isCreating, setIsCreating] = useState(false);
 
@@ -171,30 +173,26 @@ export default function LandingPage() {
   const features = [
     {
       icon: <Bot className="w-6 h-6" />,
-      title: "AI Agent Team",
-      description:
-        "A team of specialized AI agents — Engineer, Designer, PM, Data Analyst — collaborate to build your project from idea to deployment.",
+      title: t("landing.featureAiTitle"),
+      description: t("landing.featureAiDescription"),
       image: FEATURE_AI,
     },
     {
       icon: <Code2 className="w-6 h-6" />,
-      title: "Smart Code Editor",
-      description:
-        "Real-time code generation with syntax highlighting, file management, and intelligent suggestions powered by multiple LLM models.",
+      title: t("landing.featureCodeTitle"),
+      description: t("landing.featureCodeDescription"),
       image: FEATURE_CODE,
     },
     {
       icon: <Eye className="w-6 h-6" />,
-      title: "Live App Viewer",
-      description:
-        "Preview your application in real-time as it's being built. Replace elements, add images, and publish with one click.",
+      title: t("landing.featurePreviewTitle"),
+      description: t("landing.featurePreviewDescription"),
       image: FEATURE_CODE,
     },
     {
       icon: <Rocket className="w-6 h-6" />,
-      title: "One-Click Deploy",
-      description:
-        "Deploy your projects instantly to production with custom domains, SSL, and global CDN. No DevOps knowledge required.",
+      title: t("landing.featureDeployTitle"),
+      description: t("landing.featureDeployDescription"),
       image: FEATURE_DEPLOY,
     },
   ];
@@ -223,22 +221,20 @@ export default function LandingPage() {
           <div className="inline-flex items-center gap-2 bg-[#18181B]/80 border border-[#27272A] rounded-full px-4 py-2 mb-8 backdrop-blur-sm">
             <Sparkles className="w-4 h-4 text-[#A855F7]" />
             <span className="text-sm text-[#A1A1AA]">
-              Powered by AI Agent Technology
+              {t("landing.heroBadge")}
             </span>
           </div>
 
           <h1 className="text-5xl md:text-7xl font-bold leading-tight mb-6">
-            Turn ideas into
+            {t("landing.heroLine1")}
             <br />
             <span className="bg-gradient-to-r from-[#7C3AED] via-[#A855F7] to-[#C084FC] bg-clip-text text-transparent">
-              software
+              {t("landing.heroLine2")}
             </span>
           </h1>
 
           <p className="text-lg md:text-xl text-[#A1A1AA] max-w-2xl mx-auto mb-10 leading-relaxed">
-            Vibe Coding Studio is an AI-powered development platform where
-            intelligent agents collaborate to build, test, and deploy your
-            applications from idea to production in minutes.
+            {t("landing.heroDescription")}
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -251,11 +247,11 @@ export default function LandingPage() {
               {isCreating ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creating Project...
+                  {t("landing.creatingProject")}
                 </>
               ) : (
                 <>
-                  Start Building Free
+                  {t("landing.startBuilding")}
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </>
               )}
@@ -266,7 +262,7 @@ export default function LandingPage() {
                 variant="outline"
                 className="border-[#27272A] text-white hover:bg-[#18181B] px-8 h-12 text-base bg-transparent"
               >
-                Explore Projects
+                {t("landing.exploreProjects")}
               </Button>
             </Link>
           </div>
@@ -274,9 +270,9 @@ export default function LandingPage() {
           {/* Stats */}
           <div className="flex items-center justify-center gap-8 md:gap-16 mt-16">
             {[
-              { value: "100K+", label: "Projects Built" },
-              { value: "50K+", label: "Active Users" },
-              { value: "99.9%", label: "Uptime" },
+              { value: "100K+", label: t("landing.projectsBuilt") },
+              { value: "50K+", label: t("landing.activeUsers") },
+              { value: "99.9%", label: t("landing.uptime") },
             ].map((stat, i) => (
               <div key={i} className="text-center">
                 <div className="text-2xl md:text-3xl font-bold text-white">
@@ -295,17 +291,16 @@ export default function LandingPage() {
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 bg-[#7C3AED]/10 border border-[#7C3AED]/20 rounded-full px-4 py-1.5 mb-4">
               <Zap className="w-4 h-4 text-[#7C3AED]" />
-              <span className="text-sm text-[#A855F7]">Core Features</span>
+              <span className="text-sm text-[#A855F7]">{t("landing.coreFeatures")}</span>
             </div>
             <h2 className="text-4xl md:text-5xl font-bold mb-4">
-              Everything you need to{" "}
+              {t("landing.featuresTitlePrefix")}{" "}
               <span className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] bg-clip-text text-transparent">
-                build fast
+                {t("landing.featuresTitleHighlight")}
               </span>
             </h2>
             <p className="text-[#A1A1AA] text-lg max-w-2xl mx-auto">
-              From AI-powered code generation to one-click deployment, Vibe
-              Coding Studio provides a complete development workflow.
+              {t("landing.featuresSubtitle")}
             </p>
           </div>
 
@@ -345,14 +340,13 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold mb-4">
-              Built for{" "}
+              {t("landing.modernTeamsPrefix")}{" "}
               <span className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] bg-clip-text text-transparent">
-                modern teams
+                {t("landing.modernTeamsHighlight")}
               </span>
             </h2>
             <p className="text-[#A1A1AA] text-lg max-w-2xl mx-auto">
-              Whether you're a solo developer or a growing startup, Vibe Coding
-              Studio scales with your needs.
+              {t("landing.modernTeamsSubtitle")}
             </p>
           </div>
 
@@ -412,9 +406,9 @@ export default function LandingPage() {
       <section id="pricing" className="py-24 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-bold mb-4">Pricing</h2>
+            <h2 className="text-4xl md:text-5xl font-bold mb-4">{t("landing.pricingTitle")}</h2>
             <p className="text-[#A1A1AA] text-lg">
-              Free to start. Flexible to scale.
+              {t("landing.pricingSubtitle")}
             </p>
 
             {/* Billing Toggle */}
@@ -427,7 +421,7 @@ export default function LandingPage() {
                     : "text-[#A1A1AA] hover:text-white"
                 }`}
               >
-                Monthly
+                {t("landing.monthly")}
               </button>
               <button
                 onClick={() => setBillingPeriod("annual")}
@@ -437,9 +431,9 @@ export default function LandingPage() {
                     : "text-[#A1A1AA] hover:text-white"
                 }`}
               >
-                Annual
+                {t("landing.annual")}
                 <span className="text-xs bg-[#7C3AED]/20 text-[#A855F7] px-2 py-0.5 rounded-full">
-                  Save 21%
+                  {t("landing.save21")}
                 </span>
               </button>
             </div>
@@ -458,14 +452,14 @@ export default function LandingPage() {
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold mb-4">
-              Frequently Asked Questions
+              {t("landing.faqTitle")}
             </h2>
             <p className="text-[#A1A1AA]">
-              See our{" "}
+              {t("landing.faqSubtitlePrefix")}{" "}
               <a href="#" className="text-[#A855F7] hover:underline">
-                Help center
+                {t("landing.helpCenter")}
               </a>{" "}
-              for more info
+              {t("landing.faqSubtitleSuffix")}
             </p>
           </div>
 
@@ -492,14 +486,13 @@ export default function LandingPage() {
       <section className="py-24 px-6">
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-4xl md:text-5xl font-bold mb-6">
-            Ready to build with{" "}
+            {t("landing.ctaPrefix")}{" "}
             <span className="bg-gradient-to-r from-[#7C3AED] to-[#A855F7] bg-clip-text text-transparent">
-              AI?
+              {t("landing.ctaHighlight")}
             </span>
           </h2>
           <p className="text-[#A1A1AA] text-lg mb-8 max-w-2xl mx-auto">
-            Join thousands of developers and teams building the future with
-            Vibe Coding Studio. Start for free, no credit card required.
+            {t("landing.ctaDescription")}
           </p>
           <Button
             size="lg"
@@ -510,11 +503,11 @@ export default function LandingPage() {
             {isCreating ? (
               <>
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                Creating Project...
+                {t("landing.creatingProject")}
               </>
             ) : (
               <>
-                Get Started Free
+                {t("landing.getStarted")}
                 <ArrowRight className="w-5 h-5 ml-2" />
               </>
             )}
@@ -537,14 +530,14 @@ export default function LandingPage() {
                 </span>
               </div>
               <p className="text-[#71717A] text-sm">
-                Turn ideas into products that sell
+                {t("landing.footerTagline")}
               </p>
             </div>
 
             {/* Product */}
             <div>
               <h4 className="text-[#71717A] text-xs uppercase tracking-wider font-semibold mb-4">
-                Product
+                {t("landing.footerProduct")}
               </h4>
               <ul className="space-y-2">
                 {["Pricing", "Help Center"].map((item) => (
@@ -563,7 +556,7 @@ export default function LandingPage() {
             {/* Resources */}
             <div>
               <h4 className="text-[#71717A] text-xs uppercase tracking-wider font-semibold mb-4">
-                Resources
+                {t("landing.footerResources")}
               </h4>
               <ul className="space-y-2">
                 {["Blog", "Use Cases", "Videos", "GitHub"].map((item) => (
@@ -582,7 +575,7 @@ export default function LandingPage() {
             {/* About */}
             <div>
               <h4 className="text-[#71717A] text-xs uppercase tracking-wider font-semibold mb-4">
-                About
+                {t("landing.footerAbout")}
               </h4>
               <ul className="space-y-2">
                 {[
@@ -607,7 +600,7 @@ export default function LandingPage() {
             {/* Community */}
             <div>
               <h4 className="text-[#71717A] text-xs uppercase tracking-wider font-semibold mb-4">
-                Community
+                {t("landing.footerCommunity")}
               </h4>
               <ul className="space-y-2">
                 {[
@@ -632,7 +625,7 @@ export default function LandingPage() {
 
           <div className="border-t border-[#27272A] mt-12 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-[#71717A] text-sm">
-              © 2024 Vibe Coding Studio. All rights reserved.
+              {t("landing.footerRights")}
             </p>
             <div className="flex items-center gap-4">
               {["X", "LinkedIn", "Discord", "GitHub", "Reddit"].map((social) => (

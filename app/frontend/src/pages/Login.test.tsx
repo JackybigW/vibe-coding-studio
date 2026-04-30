@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 import Login from "./Login";
 
 const {
@@ -37,6 +38,7 @@ vi.mock("@/lib/api", () => ({
 
 describe("Login", () => {
   beforeEach(() => {
+    localStorage.clear();
     mockLogin.mockReset();
     mockLoginWithPassword.mockReset();
     mockAuthGetProviders.mockReset();
@@ -44,6 +46,7 @@ describe("Login", () => {
 
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -80,5 +83,22 @@ describe("Login", () => {
       expect(button).toBeDisabled();
     });
     expect(screen.getByText(/google sign-in is not configured in this environment yet/i)).toBeInTheDocument();
+  });
+
+  it("renders Chinese account copy when Chinese is selected", async () => {
+    mockAuthGetProviders.mockResolvedValue({ google: true });
+    localStorage.setItem("atoms.language", "zh");
+
+    render(
+      <LanguageProvider>
+        <MemoryRouter>
+          <Login />
+        </MemoryRouter>
+      </LanguageProvider>
+    );
+
+    expect(await screen.findByRole("heading", { name: "欢迎回来" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "登录" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /使用 Google 继续/ })).toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 import * as WorkspaceContextModule from "@/contexts/WorkspaceContext";
 import { ensureWorkspaceRuntime } from "@/lib/workspaceRuntime";
 import ProjectWorkspacePage, { PreviewSurface } from "./ProjectWorkspace";
@@ -65,6 +66,7 @@ vi.stubGlobal(
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.clearAllMocks();
 });
 
@@ -170,4 +172,21 @@ it("shows preview failure state instead of falling back to srcDoc", async () => 
   expect(await screen.findByText(/Preview failed to start/i)).toBeInTheDocument();
   expect(screen.getByText("preview bootstrap failed")).toBeInTheDocument();
   expect(screen.queryByTitle("App Preview")).not.toBeInTheDocument();
+});
+
+it("shows the language toggle in the workspace header", async () => {
+  localStorage.setItem("atoms.language", "zh");
+
+  render(
+    <LanguageProvider>
+      <MemoryRouter initialEntries={["/workspace/42"]}>
+        <Routes>
+          <Route path="/workspace/:projectNumber" element={<ProjectWorkspacePage />} />
+        </Routes>
+      </MemoryRouter>
+    </LanguageProvider>
+  );
+
+  expect(await screen.findByRole("button", { name: "分享" })).toBeInTheDocument();
+  expect(screen.getByText("English")).toBeInTheDocument();
 });

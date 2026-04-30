@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { client } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { WorkspaceProvider, useWorkspace } from "@/contexts/WorkspaceContext";
 import { ensureWorkspaceRuntime } from "@/lib/workspaceRuntime";
 import { buildAuthHeaders } from "@/lib/authToken";
 import ChatPanel from "@/components/ChatPanel";
 import CodeEditor from "@/components/CodeEditor";
+import LanguageToggle from "@/components/LanguageToggle";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -128,6 +130,7 @@ export function WorkspaceInner() {
   const { projectNumber } = useParams<{ projectNumber: string }>();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
+  const { t } = useLanguage();
   const {
     projectId: activeProjectId,
     setProjectId,
@@ -266,18 +269,18 @@ export function WorkspaceInner() {
   const leftTabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     {
       id: "chat",
-      label: "Chat",
+      label: t("workspace.chat"),
       icon: <MessageSquare className="w-4 h-4" />,
     },
-    { id: "editor", label: "Editor", icon: <FileCode className="w-4 h-4" /> },
+    { id: "editor", label: t("workspace.editor"), icon: <FileCode className="w-4 h-4" /> },
   ];
 
   const rightTabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
-    { id: "editor", label: "Editor", icon: <FileCode className="w-4 h-4" /> },
-    { id: "preview", label: "App Viewer", icon: <Eye className="w-4 h-4" /> },
+    { id: "editor", label: t("workspace.editor"), icon: <FileCode className="w-4 h-4" /> },
+    { id: "preview", label: t("workspace.appViewer"), icon: <Eye className="w-4 h-4" /> },
     {
       id: "terminal",
-      label: "Terminal",
+      label: t("workspace.terminal"),
       icon: <TerminalIcon className="w-4 h-4" />,
     },
   ];
@@ -466,7 +469,7 @@ export function WorkspaceInner() {
                 : "text-[#71717A] hover:text-[#A1A1AA]"
             }`}
           >
-            Engineer
+            {t("workspace.engineer")}
           </button>
           <button
             onClick={() => setMode("team")}
@@ -476,7 +479,7 @@ export function WorkspaceInner() {
                 : "text-[#71717A] hover:text-[#A1A1AA]"
             }`}
           >
-            Team
+            {t("workspace.team")}
           </button>
         </div>
 
@@ -497,7 +500,7 @@ export function WorkspaceInner() {
             onClick={() => setShowShare(true)}
           >
             <Share2 className="w-3.5 h-3.5 mr-1.5" />
-            Share
+            {t("workspace.share")}
           </Button>
 
           <Button
@@ -506,13 +509,14 @@ export function WorkspaceInner() {
             onClick={() => setShowPublish(true)}
           >
             <Rocket className="w-3.5 h-3.5 mr-1.5" />
-            Publish
+            {t("workspace.publish")}
           </Button>
 
           <div className="flex items-center gap-1.5 ml-2">
             <div className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
-            <span className="text-[10px] text-[#52525B]">Ready</span>
+            <span className="text-[10px] text-[#52525B]">{t("workspace.ready")}</span>
           </div>
+          <LanguageToggle />
         </div>
       </div>
 
@@ -705,7 +709,7 @@ export function WorkspaceInner() {
               ) : (
                 <Rocket className="w-4 h-4 mr-2" />
               )}
-              Publish
+              {t("workspace.publish")}
             </Button>
           </DialogFooter>
         </DialogContent>

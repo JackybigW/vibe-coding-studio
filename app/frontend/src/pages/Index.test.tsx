@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 import Index from "./Index";
 
 const mockLogin = vi.fn();
@@ -38,6 +39,7 @@ vi.mock("sonner", () => ({
 
 describe("LandingPage", () => {
   beforeEach(() => {
+    localStorage.clear();
     mockLogin.mockReset();
     mockUseAuth.mockReturnValue({
       isAuthenticated: false,
@@ -47,6 +49,7 @@ describe("LandingPage", () => {
 
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -78,5 +81,24 @@ describe("LandingPage", () => {
 
     expect(screen.queryByRole("button", { name: /continue with google/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^google$/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the landing hero in Chinese when Chinese is selected", () => {
+    localStorage.setItem("atoms.language", "zh");
+
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/register" element={<div>Register page</div>} />
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>
+    );
+
+    expect(screen.getByText("把想法变成")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /免费开始构建/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "探索项目" })).toBeInTheDocument();
   });
 });

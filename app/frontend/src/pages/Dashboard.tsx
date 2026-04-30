@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { client } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import Navbar from "@/components/Navbar";
 import ProjectCard from "@/components/ProjectCard";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ interface Project {
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { t } = useLanguage();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -189,10 +191,10 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold">
-              Welcome back{user?.display_name ? `, ${user.display_name}` : ""}
+              {t("dashboard.welcomeBack")}{user?.display_name ? `, ${user.display_name}` : ""}
             </h1>
             <p className="text-[#71717A] text-sm mt-1">
-              {projects.length} project{projects.length !== 1 ? "s" : ""}
+              {projects.length} {projects.length === 1 ? t("dashboard.projectCount") : t("dashboard.projectsCount")}
             </p>
           </div>
           <Button
@@ -205,7 +207,7 @@ export default function DashboardPage() {
             }}
           >
             <Plus className="w-4 h-4 mr-2" />
-            New Project
+            {t("dashboard.newProject")}
           </Button>
         </div>
 
@@ -216,7 +218,7 @@ export default function DashboardPage() {
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search projects..."
+              placeholder={t("dashboard.searchProjects")}
               className="pl-10 bg-[#18181B] border-[#27272A] text-white placeholder:text-[#52525B] h-9"
             />
           </div>
@@ -253,12 +255,12 @@ export default function DashboardPage() {
           <div className="flex flex-col items-center justify-center py-20">
             <FolderOpen className="w-16 h-16 text-[#27272A] mb-4" />
             <h3 className="text-lg font-semibold text-[#A1A1AA] mb-2">
-              {searchQuery ? "No projects found" : "No projects yet"}
+              {searchQuery ? t("dashboard.noProjectsFound") : t("dashboard.noProjectsYet")}
             </h3>
             <p className="text-sm text-[#52525B] mb-6">
               {searchQuery
-                ? "Try a different search term"
-                : "Create your first project to get started"}
+                ? t("dashboard.tryDifferentSearch")
+                : t("dashboard.createFirstProject")}
             </p>
             {!searchQuery && (
               <Button
@@ -271,7 +273,7 @@ export default function DashboardPage() {
                 }}
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Create Project
+                {t("dashboard.createProject")}
               </Button>
             )}
           </div>
@@ -303,7 +305,7 @@ export default function DashboardPage() {
                     {project.name}
                   </h3>
                   <p className="text-xs text-[#52525B] truncate">
-                    {project.description || "No description"}
+                    {project.description || t("dashboard.noDescription")}
                   </p>
                 </div>
                 <span className="text-[10px] text-[#52525B] px-2 py-0.5 bg-[#27272A] rounded">
@@ -319,11 +321,11 @@ export default function DashboardPage() {
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="bg-[#18181B] border-[#27272A] text-white">
           <DialogHeader>
-            <DialogTitle>Create New Project</DialogTitle>
+            <DialogTitle>{t("dashboard.createNewProject")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label className="text-[#A1A1AA] text-xs">Project Name</Label>
+              <Label className="text-[#A1A1AA] text-xs">{t("dashboard.projectName")}</Label>
               <Input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
@@ -332,17 +334,17 @@ export default function DashboardPage() {
               />
             </div>
             <div>
-              <Label className="text-[#A1A1AA] text-xs">Description</Label>
+              <Label className="text-[#A1A1AA] text-xs">{t("dashboard.description")}</Label>
               <Input
                 value={newDesc}
                 onChange={(e) => setNewDesc(e.target.value)}
-                placeholder="A brief description of your project"
+                placeholder={t("dashboard.descriptionPlaceholder")}
                 className="mt-1.5 bg-[#09090B] border-[#27272A] text-white"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-[#A1A1AA] text-xs">Framework</Label>
+                <Label className="text-[#A1A1AA] text-xs">{t("dashboard.framework")}</Label>
                 <Select value={newFramework} onValueChange={setNewFramework}>
                   <SelectTrigger className="mt-1.5 bg-[#09090B] border-[#27272A] text-white">
                     <SelectValue />
@@ -361,7 +363,7 @@ export default function DashboardPage() {
                 </Select>
               </div>
               <div>
-                <Label className="text-[#A1A1AA] text-xs">Visibility</Label>
+                <Label className="text-[#A1A1AA] text-xs">{t("dashboard.visibility")}</Label>
                 <Select
                   value={newVisibility}
                   onValueChange={setNewVisibility}
@@ -371,13 +373,13 @@ export default function DashboardPage() {
                   </SelectTrigger>
                   <SelectContent className="bg-[#18181B] border-[#27272A]">
                     <SelectItem value="private" className="text-[#FAFAFA]">
-                      🔒 Private
+                      🔒 {t("dashboard.private")}
                     </SelectItem>
                     <SelectItem value="public" className="text-[#FAFAFA]">
-                      🌐 Public
+                      🌐 {t("dashboard.public")}
                     </SelectItem>
                     <SelectItem value="secret" className="text-[#FAFAFA]">
-                      👁 Secret
+                      👁 {t("dashboard.secret")}
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -390,7 +392,7 @@ export default function DashboardPage() {
               onClick={() => setShowCreate(false)}
               className="text-[#A1A1AA] hover:text-white hover:bg-[#27272A]"
             >
-              Cancel
+              {t("dashboard.cancel")}
             </Button>
             <Button
               onClick={handleCreate}
@@ -402,7 +404,7 @@ export default function DashboardPage() {
               ) : (
                 <Plus className="w-4 h-4 mr-2" />
               )}
-              Create
+              {t("dashboard.create")}
             </Button>
           </DialogFooter>
         </DialogContent>

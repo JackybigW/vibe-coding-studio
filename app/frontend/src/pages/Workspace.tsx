@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Navbar from "@/components/Navbar";
 import WorkspacePanel from "@/components/WorkspacePanel";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   MessageSquare,
   FileCode,
@@ -20,9 +21,16 @@ const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
 ];
 
 export default function WorkspacePage() {
+  const { t } = useLanguage();
   const [leftTab, setLeftTab] = useState<TabType>("chat");
   const [rightTab, setRightTab] = useState<TabType>("editor");
   const [showLeft, setShowLeft] = useState(true);
+  const tabLabels: Record<TabType, string> = {
+    chat: t("workspace.chat"),
+    editor: t("workspace.editor"),
+    preview: t("workspace.appViewer"),
+    terminal: t("workspace.terminal"),
+  };
 
   return (
     <div className="h-screen bg-[#09090B] text-white flex flex-col">
@@ -47,7 +55,7 @@ export default function WorkspacePage() {
           </span>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-[#52525B]">Demo Mode</span>
+          <span className="text-xs text-[#52525B]">{t("workspace.demoMode")}</span>
           <div className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
         </div>
       </div>
@@ -70,7 +78,7 @@ export default function WorkspacePage() {
                   }`}
                 >
                   {tab.icon}
-                  {tab.label}
+                  {tabLabels[tab.id]}
                 </button>
               ))}
             </div>
@@ -95,7 +103,7 @@ export default function WorkspacePage() {
                 }`}
               >
                 {tab.icon}
-                {tab.label}
+                {tabLabels[tab.id]}
               </button>
             ))}
           </div>

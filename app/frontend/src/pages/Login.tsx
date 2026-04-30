@@ -6,6 +6,7 @@ import { authApi } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import GoogleLogo from "@/components/GoogleLogo";
 import { Loader2 } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (typeof error === "object" && error !== null) {
@@ -26,6 +27,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 export default function Login() {
   const navigate = useNavigate();
   const { login, loginWithPassword } = useAuth();
+  const { t } = useLanguage();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -63,7 +65,7 @@ export default function Login() {
       await loginWithPassword(email, password);
       navigate("/dashboard");
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Sign in failed"));
+      setError(getErrorMessage(err, t("auth.signInFailed")));
     } finally {
       setLoading(false);
     }
@@ -75,7 +77,7 @@ export default function Login() {
     try {
       await login();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Google sign in failed"));
+      setError(getErrorMessage(err, t("auth.googleFailed")));
     } finally {
       setIsGoogleLoading(false);
     }
@@ -95,15 +97,15 @@ export default function Login() {
         </div>
 
         <div className="bg-[#18181B] border border-[#27272A] rounded-2xl p-8 shadow-xl">
-          <h1 className="text-white text-2xl font-bold mb-1">Welcome back</h1>
+          <h1 className="text-white text-2xl font-bold mb-1">{t("auth.welcomeBack")}</h1>
           <p className="text-[#71717A] text-sm mb-6">
-            Sign in to your Vibe Coding Studio account
+            {t("auth.loginSubtitle")}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-[#A1A1AA] mb-1.5">
-                Email
+                {t("auth.email")}
               </label>
               <input
                 id="email"
@@ -120,10 +122,10 @@ export default function Login() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label htmlFor="password" className="block text-sm font-medium text-[#A1A1AA]">
-                  Password
+                  {t("auth.password")}
                 </label>
                 <Link to="/forgot-password" className="text-xs text-[#7C3AED] hover:text-[#A855F7] transition-colors">
-                  Forgot password?
+                  {t("auth.forgotPassword")}
                 </Link>
               </div>
               <input
@@ -151,14 +153,14 @@ export default function Login() {
                           method: "POST",
                           data: { email },
                         });
-                        alert("Verification link sent! Check your inbox.");
+                        alert(t("auth.verificationSent"));
                       } catch {
-                        alert("Failed to resend. Please try again later.");
+                        alert(t("auth.resendFailed"));
                       }
                     }}
                     className="text-[#A855F7] hover:text-white font-medium underline underline-offset-2 transition-colors mt-1"
                   >
-                    Resend verification email
+                    {t("auth.resendVerification")}
                   </button>
                 )}
               </div>
@@ -170,14 +172,14 @@ export default function Login() {
               disabled={loading}
               className="w-full bg-gradient-to-r from-[#7C3AED] to-[#A855F7] text-white font-semibold py-2.5 rounded-lg text-sm hover:opacity-90 disabled:opacity-50 transition-opacity shadow-lg shadow-purple-900/30"
             >
-              {loading ? "Signing in…" : "Sign in"}
+              {loading ? t("auth.signingIn") : t("auth.signIn")}
             </button>
           </form>
 
           <div className="my-6 flex items-center gap-3">
             <div className="h-px flex-1 bg-[#27272A]" />
             <span className="text-xs uppercase tracking-[0.24em] text-[#52525B]">
-              Or continue with
+              {t("auth.orContinueWith")}
             </span>
             <div className="h-px flex-1 bg-[#27272A]" />
           </div>
@@ -192,26 +194,26 @@ export default function Login() {
             {isCheckingGoogle || isGoogleLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {isCheckingGoogle ? "Checking Google sign-in…" : "Redirecting…"}
+                {isCheckingGoogle ? t("auth.checkingGoogle") : t("auth.redirecting")}
               </>
             ) : (
               <>
                 <GoogleLogo />
-                Continue with Google
+                {t("auth.continueWithGoogle")}
               </>
             )}
           </Button>
 
           {!isCheckingGoogle && !isGoogleEnabled && (
             <p className="mt-3 text-center text-xs text-[#71717A]">
-              Google sign-in is not configured in this environment yet.
+              {t("auth.googleUnavailable")}
             </p>
           )}
 
           <p className="text-center text-sm text-[#71717A] mt-6">
-            Don't have an account?{" "}
+            {t("auth.noAccount")}{" "}
             <Link to="/register" className="text-[#A855F7] hover:text-white transition-colors font-medium">
-              Sign up
+              {t("auth.signUp")}
             </Link>
           </p>
         </div>
