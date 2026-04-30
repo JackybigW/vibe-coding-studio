@@ -40,4 +40,20 @@ describe("LanguageProvider", () => {
     expect(screen.getByText("首页")).toBeInTheDocument();
     expect(localStorage.getItem("atoms.language")).toBe("zh");
   });
+
+  it("defaults to English even when the browser locale is Chinese", () => {
+    Object.defineProperty(window.navigator, "language", {
+      value: "zh-CN",
+      configurable: true,
+    });
+
+    render(
+      <LanguageProvider>
+        <Probe />
+      </LanguageProvider>
+    );
+
+    expect(screen.getByText("en")).toBeInTheDocument();
+    expect(screen.getByText("Home")).toBeInTheDocument();
+  });
 });
