@@ -52,8 +52,7 @@ interface Message {
   approvedPlan?: Array<{ id: string; text: string }>;
 }
 
-const MODELS = [
-  { id: "MiniMax-M2.7", label: "MiniMax M2.7", icon: "⚡" },
+export const CHAT_MODELS = [
   { id: "mimo-v2.5-pro", label: "MiMo V2.5 Pro", icon: "🌾" },
   { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", icon: "🔮" },
 ];
@@ -93,7 +92,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("MiniMax-M2.7");
+  const [selectedModel, setSelectedModel] = useState("mimo-v2.5-pro");
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeAssistantRendered, setActiveAssistantRendered] = useState("");
   const [activeAssistantAgent, setActiveAssistantAgent] = useState("engineer");
@@ -551,7 +550,7 @@ export default function ChatPanel({ mode }: ChatPanelProps) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="bg-[#18181B] border-[#27272A]">
-            {MODELS.map((m) => (
+            {CHAT_MODELS.map((m) => (
               <SelectItem
                 key={m.id}
                 value={m.id}

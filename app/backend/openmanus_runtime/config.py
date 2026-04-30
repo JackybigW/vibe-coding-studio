@@ -81,7 +81,7 @@ class Config:
 
     def _load_initial_config(self) -> AppConfig:
         default_llm = LLMSettings(
-            model=os.getenv("OPENMANUS_MODEL", os.getenv("APP_AI_DEFAULT_MODEL", "MiniMax-M2.7")),
+            model=os.getenv("OPENMANUS_MODEL", os.getenv("APP_AI_DEFAULT_MODEL", "mimo-v2.5-pro")),
             base_url=os.getenv("OPENMANUS_BASE_URL", os.getenv("APP_AI_BASE_URL", "https://api.openai.com/v1")),
             api_key=os.getenv("OPENMANUS_API_KEY", os.getenv("APP_AI_KEY", "")),
             max_tokens=int(os.getenv("OPENMANUS_MAX_TOKENS", "4096")),
@@ -99,6 +99,8 @@ class Config:
             provider_settings = self._load_provider_config(provider, default_llm)
             if provider_settings is not None:
                 llm[provider] = provider_settings
+                if provider_settings.model == default_llm.model:
+                    llm["default"] = provider_settings
         return AppConfig(llm=llm, sandbox=SandboxSettings())
 
     def _load_provider_config(self, provider: str, default_llm: LLMSettings) -> LLMSettings | None:

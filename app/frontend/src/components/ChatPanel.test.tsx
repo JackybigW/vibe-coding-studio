@@ -3,7 +3,7 @@ import { useEffect, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import ChatPanel from "./ChatPanel";
+import ChatPanel, { CHAT_MODELS } from "./ChatPanel";
 import { WorkspaceProvider, useWorkspace } from "@/contexts/WorkspaceContext";
 
 const realtimeHarness: {
@@ -96,6 +96,42 @@ describe("ChatPanel", () => {
         },
       })
     );
+  });
+
+  it("defaults to MiMo and hides MiniMax from the model selector", async () => {
+    expect(CHAT_MODELS.map((model) => model.id)).toEqual([
+      "mimo-v2.5-pro",
+      "deepseek-v4-pro",
+    ]);
+
+    render(
+      <WorkspaceProvider>
+        <WorkspaceHarness>
+          <ChatPanel mode="engineer" />
+        </WorkspaceHarness>
+      </WorkspaceProvider>
+    );
+
+    expect(screen.getByText("MiMo V2.5 Pro")).toBeInTheDocument();
+    expect(screen.queryByText("MiniMax M2.7")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe what you want to build/i), {
+      target: { value: "build auth" },
+    });
+    const buttons = screen.getAllByRole("button");
+    fireEvent.click(buttons[buttons.length - 1]);
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/agent/session-ticket"),
+        expect.objectContaining({
+          body: JSON.stringify({
+            model: "mimo-v2.5-pro",
+            project_id: 42,
+          }),
+        })
+      );
+    });
   });
 
   it("keeps the progress feed collapsed by default and reveals it when expanded", async () => {
